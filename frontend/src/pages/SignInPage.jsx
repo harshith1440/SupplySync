@@ -2,27 +2,15 @@ import { Navigate } from "react-router-dom";
 import { SignIn, useAuth } from "@clerk/react";
 
 function SignInPage() {
-  const { isLoaded, isSignedIn, orgRole } = useAuth();
+  const { isLoaded, isSignedIn } = useAuth();
 
   if (!isLoaded) {
     return <p>Loading...</p>;
   }
 
-  // Already signed in → never show login again
+  // Already signed in → determine dashboard from role
   if (isSignedIn) {
-    if (orgRole === "org:admin") {
-      return <Navigate to="/admin" replace />;
-    }
-
-    if (orgRole === "org:retailer") {
-      return <Navigate to="/retailer" replace />;
-    }
-
-    if (orgRole === "org:supplier") {
-      return <Navigate to="/supplier" replace />;
-    }
-
-    return <Navigate to="/" replace />;
+    return <Navigate to="/auth-redirect" replace />;
   }
 
   return (
@@ -30,7 +18,7 @@ function SignInPage() {
       routing="path"
       path="/sign-in"
       signUpUrl="/sign-up"
-      forceRedirectUrl="/"
+      forceRedirectUrl="/auth-redirect"
     />
   );
 }

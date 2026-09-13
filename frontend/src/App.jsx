@@ -1,6 +1,7 @@
-import { Navigate, Route, Routes } from "react-router-dom";
-import { useAuth } from "@clerk/react";
+import { Navigate, Route, Routes, Link } from "react-router-dom";
+import { useAuth, UserButton } from "@clerk/react";
 
+import AuthRedirectPage from "./pages/AuthRedirectPage";
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
 import ChooseRolePage from "./pages/ChooseRolePage";
@@ -16,11 +17,12 @@ function Home() {
     return <p>Loading...</p>;
   }
 
-  // Not signed in → authentication page
+  // User is NOT signed in
   if (!isSignedIn) {
     return (
       <div>
         <h1>SupplySync AI</h1>
+
         <p>Retail Inventory & Procurement Assistant</p>
 
         <button onClick={() => (window.location.href = "/sign-in")}>
@@ -34,27 +36,51 @@ function Home() {
     );
   }
 
-  // Already signed in → go directly to dashboard
+  // User IS signed in
+  let dashboardPath = null;
+  let dashboardName = null;
+
   if (orgRole === "org:admin") {
-    return <Navigate to="/admin" replace />;
+    dashboardPath = "/admin";
+    dashboardName = "Admin Dashboard";
   }
 
   if (orgRole === "org:retailer") {
-    return <Navigate to="/retailer" replace />;
+    dashboardPath = "/retailer";
+    dashboardName = "Retailer Dashboard";
   }
 
   if (orgRole === "org:supplier") {
-    return <Navigate to="/supplier" replace />;
+    dashboardPath = "/supplier";
+    dashboardName = "Supplier Dashboard";
   }
 
-  // No role yet.
-  // We DO NOT automatically send existing signed-in users here.
   return (
     <div>
       <h1>Welcome to SupplySync AI</h1>
-      <p>Your account is authenticated.</p>
-      <p>Your role has not been assigned yet.</p>
-      <p>Please contact the administrator.</p>
+
+      <p>You are signed in.</p>
+
+      {/* Clerk profile / account button */}
+      <UserButton />
+
+      {dashboardPath ? (
+        <div>
+          <p>Your role: {orgRole}</p>
+
+          <Link to={dashboardPath}>
+            <button>{`Go to ${dashboardName}`}</button>
+          </Link>
+        </div>
+      ) : (
+        <div>
+          <p>Your account does not have a role yet.</p>
+
+          <Link to="/choose-role">
+            <button>Choose Role</button>
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
@@ -80,12 +106,18 @@ function ProtectedRoute({ allowedRole, children }) {
 function App() {
   return (
     <Routes>
+      {/* Home */}
       <Route path="/" element={<Home />} />
 
+      {/* Authentication */}
       <Route path="/sign-in/*" element={<SignInPage />} />
       <Route path="/sign-up/*" element={<SignUpPage />} />
       <Route path="/choose-role" element={<ChooseRolePage />} />
 
+      {/* After login */}
+      <Route path="/auth-redirect" element={<AuthRedirectPage />} />
+
+      {/* Admin Dashboard */}
       <Route
         path="/admin"
         element={
@@ -95,6 +127,7 @@ function App() {
         }
       />
 
+      {/* Retailer Dashboard */}
       <Route
         path="/retailer"
         element={
@@ -104,6 +137,7 @@ function App() {
         }
       />
 
+      {/* Supplier Dashboard */}
       <Route
         path="/supplier"
         element={
@@ -113,6 +147,7 @@ function App() {
         }
       />
 
+      {/* Unknown URL */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

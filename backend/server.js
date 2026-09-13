@@ -5,6 +5,7 @@ const { clerkMiddleware } = require("@clerk/express");
 
 const testRoutes = require("./routes/testRoutes");
 const userRoutes = require("./routes/userRoutes");
+const inventoryRoutes = require("./routes/inventoryRoutes");
 
 require("dotenv").config();
 
@@ -16,6 +17,8 @@ app.use(clerkMiddleware());
 
 app.use("/api/test", testRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/inventory", inventoryRoutes);
+
 
 app.get("/", (req, res) => {
   res.json({
