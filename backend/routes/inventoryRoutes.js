@@ -67,6 +67,40 @@ router.post("/", requireRole("org:retailer"), async (req, res) => {
   }
 });
 
+// GET low-stock inventory items
+router.get(
+  "/low-stock",
+  requireRole("org:retailer"),
+  async (req, res) => {
+    try {
+      const auth = getAuth(req);
+
+      if (!auth.orgId) {
+        return res.status(400).json({
+          message: "Organization not found",
+        });
+      }
+
+      const lowStockInventory = await Inventory.find({
+        organizationId: auth.orgId,
+        $expr: {
+          $lte: ["$quantity", "$reorderLevel"],
+        },
+      }).sort({ quantity: 1 });
+
+      return res.status(200).json({
+        count: lowStockInventory.length,
+        inventory: lowStockInventory,
+      });
+    } catch (error) {
+      console.error("Get low-stock inventory error:", error);
+
+      return res.status(500).json({
+        message: "Failed to fetch low-stock inventory",
+      });
+    }
+  }
+);
 
 // GET all inventory items
 router.get("/", requireRole("org:retailer"), async (req, res) => {
@@ -94,7 +128,6 @@ router.get("/", requireRole("org:retailer"), async (req, res) => {
     });
   }
 });
-
 
 // GET one inventory item
 router.get("/:id", requireRole("org:retailer"), async (req, res) => {
@@ -129,7 +162,6 @@ router.get("/:id", requireRole("org:retailer"), async (req, res) => {
     });
   }
 });
-
 
 // UPDATE inventory item
 router.put("/:id", requireRole("org:retailer"), async (req, res) => {
@@ -195,7 +227,6 @@ router.put("/:id", requireRole("org:retailer"), async (req, res) => {
   }
 });
 
-
 // DELETE inventory item
 router.delete("/:id", requireRole("org:retailer"), async (req, res) => {
   try {
@@ -229,6 +260,5 @@ router.delete("/:id", requireRole("org:retailer"), async (req, res) => {
     });
   }
 });
-
 
 module.exports = router;
