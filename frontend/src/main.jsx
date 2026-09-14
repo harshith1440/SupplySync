@@ -10,7 +10,6 @@ function Root() {
 
   return (
     <ClerkProvider
-  publishableKey={import.meta.env.VITE_CLERK_PUBLISHABLE_KEY}
     routerPush={(to) => navigate(to)}
     routerReplace={(to) => navigate(to, { replace: true })}
     signInUrl="/sign-in"
