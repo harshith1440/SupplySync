@@ -1,0 +1,96 @@
+const API_URL =
+  "http://localhost:5000/api/purchase-orders";
+
+async function apiRequest(
+  endpoint,
+  options = {},
+  getToken
+) {
+  const token = await getToken();
+
+  const response = await fetch(
+    `${API_URL}${endpoint}`,
+    {
+      ...options,
+
+      headers: {
+        "Content-Type": "application/json",
+
+        Authorization: `Bearer ${token}`,
+
+        ...(options.headers || {}),
+      },
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.message ||
+        "Something went wrong"
+    );
+  }
+
+  return data;
+}
+
+/*
+========================================================
+CREATE PURCHASE ORDER
+========================================================
+*/
+
+export async function createPurchaseOrder(
+  supplierId,
+  items,
+  getToken
+) {
+  return apiRequest(
+    "/",
+    {
+      method: "POST",
+
+      body: JSON.stringify({
+        supplierId,
+        items,
+      }),
+    },
+    getToken
+  );
+}
+
+/*
+========================================================
+GET ALL PURCHASE ORDERS
+========================================================
+*/
+
+export async function getPurchaseOrders(
+  getToken
+) {
+  return apiRequest(
+    "/",
+    {},
+    getToken
+  );
+}
+
+/*
+========================================================
+GET SINGLE PURCHASE ORDER
+========================================================
+*/
+
+export async function getPurchaseOrder(
+  purchaseOrderId,
+  getToken
+) {
+  return apiRequest(
+    `/${encodeURIComponent(
+      purchaseOrderId
+    )}`,
+    {},
+    getToken
+  );
+}
