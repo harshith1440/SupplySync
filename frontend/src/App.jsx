@@ -9,13 +9,19 @@ import ChooseRolePage from "./pages/ChooseRolePage";
 import AdminDashboard from "./pages/AdminDashboard";
 import RetailerDashboard from "./pages/RetailerDashboard";
 import SupplierDashboard from "./pages/SupplierDashboard";
+import SupplierListPage from "./pages/SupplierListPage";
+import DemandForecastPage from "./pages/DemandForecastPage";
+import PurchaseOrdersPage from "./pages/PurchaseOrdersPage";
+import AnalyticsPage from "./pages/AnalyticsPage";
+import AccountSettingsPage from "./pages/AccountSettingsPage";
+import HelpSupportPage from "./pages/HelpSupportPage";
 
 function Home() {
   const { isLoaded, isSignedIn, orgRole } = useAuth();
 
   if (!isLoaded) {
-    return <p>Loading...</p>;
-  }
+    return <p>Clerk is still loading...</p>;
+}
 
   // User is NOT signed in
   if (!isSignedIn) {
@@ -146,11 +152,64 @@ function App() {
           </ProtectedRoute>
         }
       />
+      {/* Retailer Suppliers */}
+      <Route
+        path="/retailer/suppliers"
+        element={
+          <ProtectedRoute allowedRole="org:retailer">
+            <SupplierListPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/retailer/demand-forecast"
+        element={
+          <ProtectedRoute allowedRole="org:retailer">
+            <DemandForecastPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/retailer/purchase-orders"
+        element={
+          <ProtectedRoute allowedRole="org:retailer">
+            <PurchaseOrdersPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/retailer/analytics"
+        element={
+          <ProtectedRoute allowedRole="org:retailer">
+            <AnalyticsPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/retailer/account-settings"
+        element={
+          <ProtectedRoute allowedRole="org:retailer">
+            <AccountSettingsPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/retailer/help-support"
+        element={
+          <ProtectedRoute allowedRole="org:retailer">
+            <HelpSupportPage />
+          </ProtectedRoute>
+        }
+      />
 
       {/* Unknown URL */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
-
 export default App;
