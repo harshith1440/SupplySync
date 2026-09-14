@@ -21,18 +21,15 @@ async function apiRequest(endpoint, options = {}, getToken) {
   return data;
 }
 
-
-// GET all inventory
+// GET all inventory items
 export async function getInventory(getToken) {
   return apiRequest("/", {}, getToken);
 }
-
 
 // GET one inventory item
 export async function getInventoryItem(id, getToken) {
   return apiRequest(`/${id}`, {}, getToken);
 }
-
 
 // CREATE inventory item
 export async function createInventoryItem(item, getToken) {
@@ -46,7 +43,6 @@ export async function createInventoryItem(item, getToken) {
   );
 }
 
-
 // UPDATE inventory item
 export async function updateInventoryItem(id, item, getToken) {
   return apiRequest(
@@ -59,7 +55,6 @@ export async function updateInventoryItem(id, item, getToken) {
   );
 }
 
-
 // DELETE inventory item
 export async function deleteInventoryItem(id, getToken) {
   return apiRequest(
@@ -69,4 +64,9 @@ export async function deleteInventoryItem(id, getToken) {
     },
     getToken
   );
+}
+
+// GET low-stock inventory items
+export async function getLowStockInventory(getToken) {
+  return apiRequest("/low-stock", {}, getToken);
 }

@@ -3,6 +3,7 @@ import { useAuth } from "@clerk/react";
 
 import {
   getInventory,
+  getLowStockInventory,
   createInventoryItem,
   updateInventoryItem,
   deleteInventoryItem,
@@ -14,10 +15,13 @@ function RetailerDashboard() {
   const { getToken } = useAuth();
 
   const [inventory, setInventory] = useState([]);
+  const [lowStockInventory, setLowStockInventory] = useState([]);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
 
   const [loading, setLoading] = useState(true);
+  const [lowStockLoading, setLowStockLoading] = useState(true);
   const [error, setError] = useState("");
 
   const [showForm, setShowForm] = useState(false);
@@ -43,15 +47,36 @@ function RetailerDashboard() {
       setInventory(data.inventory);
     } catch (error) {
       console.error("Inventory error:", error);
-
       setError(error.message || "Failed to load inventory");
     } finally {
       setLoading(false);
     }
   }
 
+  async function loadLowStockInventory() {
+    try {
+      setLowStockLoading(true);
+
+      const data = await getLowStockInventory(getToken);
+
+      setLowStockInventory(data.inventory);
+    } catch (error) {
+      console.error("Low-stock inventory error:", error);
+      setError(error.message || "Failed to load low-stock inventory");
+    } finally {
+      setLowStockLoading(false);
+    }
+  }
+
+  async function loadDashboardData() {
+    await Promise.all([
+      loadInventory(),
+      loadLowStockInventory(),
+    ]);
+  }
+
   useEffect(() => {
-    loadInventory();
+    loadDashboardData();
   }, [getToken]);
 
   function handleInputChange(event) {
@@ -125,7 +150,6 @@ function RetailerDashboard() {
         reorderLevel: Number(formData.reorderLevel),
       };
 
-      // UPDATE
       if (editingId) {
         const data = await updateInventoryItem(
           editingId,
@@ -138,10 +162,7 @@ function RetailerDashboard() {
             item._id === editingId ? data.inventory : item
           )
         );
-      }
-
-      // CREATE
-      else {
+      } else {
         const data = await createInventoryItem(product, getToken);
 
         setInventory((currentInventory) => [
@@ -150,10 +171,11 @@ function RetailerDashboard() {
         ]);
       }
 
+      await loadLowStockInventory();
+
       resetForm();
     } catch (error) {
       console.error("Inventory save error:", error);
-
       setError(error.message || "Failed to save product");
     } finally {
       setSubmitting(false);
@@ -177,19 +199,18 @@ function RetailerDashboard() {
       setInventory((currentInventory) =>
         currentInventory.filter((item) => item._id !== id)
       );
+
+      await loadLowStockInventory();
     } catch (error) {
       console.error("Delete inventory error:", error);
-
       setError(error.message || "Failed to delete product");
     }
   }
 
-  // Get unique categories
   const categories = [
     ...new Set(inventory.map((item) => item.category)),
   ];
 
-  // Search + category filtering
   const filteredInventory = inventory.filter((item) => {
     const search = searchTerm.toLowerCase().trim();
 
@@ -207,16 +228,13 @@ function RetailerDashboard() {
 
   return (
     <div>
-      {/* Dashboard Header */}
       <div>
         <h1>Retailer Dashboard</h1>
-
         <LogoutButton />
       </div>
 
       <hr />
 
-      {/* Inventory Header */}
       <div>
         <h2>Inventory</h2>
 
@@ -225,10 +243,50 @@ function RetailerDashboard() {
         </button>
       </div>
 
-      {/* Error Message */}
       {error && <p>{error}</p>}
 
-      {/* Add / Edit Form */}
+      <div>
+        <h3>Low Stock</h3>
+
+        {lowStockLoading ? (
+          <p>Checking stock levels...</p>
+        ) : (
+          <>
+            <p>
+              {lowStockInventory.length} product
+              {lowStockInventory.length !== 1 ? "s" : ""} currently
+              need{lowStockInventory.length === 1 ? "s" : ""} restocking.
+            </p>
+
+            {lowStockInventory.length > 0 && (
+              <table border="1" cellPadding="10">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>SKU</th>
+                    <th>Current Stock</th>
+                    <th>Reorder Level</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {lowStockInventory.map((item) => (
+                    <tr key={item._id}>
+                      <td>{item.productName}</td>
+                      <td>{item.sku}</td>
+                      <td>{item.quantity}</td>
+                      <td>{item.reorderLevel}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
+        )}
+      </div>
+
+      <hr />
+
       {showForm && (
         <div>
           <h3>
@@ -239,7 +297,6 @@ function RetailerDashboard() {
             <div>
               <label>Product Name</label>
               <br />
-
               <input
                 type="text"
                 name="productName"
@@ -255,7 +312,6 @@ function RetailerDashboard() {
             <div>
               <label>SKU</label>
               <br />
-
               <input
                 type="text"
                 name="sku"
@@ -271,7 +327,6 @@ function RetailerDashboard() {
             <div>
               <label>Category</label>
               <br />
-
               <input
                 type="text"
                 name="category"
@@ -287,7 +342,6 @@ function RetailerDashboard() {
             <div>
               <label>Quantity</label>
               <br />
-
               <input
                 type="number"
                 name="quantity"
@@ -304,7 +358,6 @@ function RetailerDashboard() {
             <div>
               <label>Price</label>
               <br />
-
               <input
                 type="number"
                 name="price"
@@ -322,7 +375,6 @@ function RetailerDashboard() {
             <div>
               <label>Reorder Level</label>
               <br />
-
               <input
                 type="number"
                 name="reorderLevel"
@@ -357,7 +409,6 @@ function RetailerDashboard() {
 
       <hr />
 
-      {/* Search and Filter */}
       <div>
         <input
           type="text"
@@ -386,28 +437,23 @@ function RetailerDashboard() {
 
       <br />
 
-      {/* Loading */}
       {loading && <p>Loading inventory...</p>}
 
-      {/* Empty Inventory */}
       {!loading && !error && inventory.length === 0 && (
         <div>
           <h3>No products yet</h3>
-
           <p>
             Your inventory is empty. Add your first product to get started.
           </p>
         </div>
       )}
 
-      {/* No Search/Filter Results */}
       {!loading &&
         inventory.length > 0 &&
         filteredInventory.length === 0 && (
           <p>No products match your search or filter.</p>
         )}
 
-      {/* Inventory Table */}
       {!loading && filteredInventory.length > 0 && (
         <table border="1" cellPadding="10">
           <thead>
@@ -418,38 +464,71 @@ function RetailerDashboard() {
               <th>Quantity</th>
               <th>Price</th>
               <th>Reorder Level</th>
+              <th>Status</th>
               <th>Actions</th>
             </tr>
           </thead>
 
           <tbody>
-            {filteredInventory.map((item) => (
-              <tr key={item._id}>
-                <td>{item.productName}</td>
+            {filteredInventory.map((item) => {
+              const isLowStock = lowStockInventory.some(
+                (lowStockItem) =>
+                  lowStockItem._id === item._id
+              );
 
-                <td>{item.sku}</td>
+              return (
+                <tr
+                  key={item._id}
+                  style={
+                    isLowStock
+                      ? {
+                          backgroundColor: "#ffe5e5",
+                        }
+                      : {}
+                  }
+                >
+                  <td>{item.productName}</td>
 
-                <td>{item.category}</td>
+                  <td>{item.sku}</td>
 
-                <td>{item.quantity}</td>
+                  <td>{item.category}</td>
 
-                <td>₹{item.price}</td>
+                  <td>{item.quantity}</td>
 
-                <td>{item.reorderLevel}</td>
+                  <td>₹{item.price}</td>
 
-                <td>
-                  <button onClick={() => handleEditClick(item)}>
-                    Edit
-                  </button>
+                  <td>{item.reorderLevel}</td>
 
-                  {" "}
+                  <td>
+                    {isLowStock ? (
+                      <strong>⚠️ LOW STOCK</strong>
+                    ) : (
+                      "✓ Normal"
+                    )}
+                  </td>
 
-                  <button onClick={() => handleDelete(item._id)}>
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
+                  <td>
+                    <button
+                      onClick={() =>
+                        handleEditClick(item)
+                      }
+                    >
+                      Edit
+                    </button>
+
+                    {" "}
+
+                    <button
+                      onClick={() =>
+                        handleDelete(item._id)
+                      }
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
