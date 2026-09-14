@@ -4,10 +4,14 @@ import { useAuth } from "@clerk/react";
 import {
   getInventory,
   getLowStockInventory,
+  getExpiredInventory,
+  getExpiringSoonInventory,
   createInventoryItem,
   updateInventoryItem,
   deleteInventoryItem,
 } from "../api/inventoryApi";
+
+import { getDemandForecast } from "../api/forecastApi";
 
 import LogoutButton from "../components/LogoutButton";
 
@@ -16,12 +20,20 @@ function RetailerDashboard() {
 
   const [inventory, setInventory] = useState([]);
   const [lowStockInventory, setLowStockInventory] = useState([]);
+  const [expiredInventory, setExpiredInventory] = useState([]);
+  const [expiringSoonInventory, setExpiringSoonInventory] = useState([]);
+
+  const [forecast, setForecast] = useState(null);
+  const [forecastLoading, setForecastLoading] = useState(false);
+  const [forecastError, setForecastError] = useState("");
+  const [forecastSearchTerm, setForecastSearchTerm] = useState("");
 
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
 
   const [loading, setLoading] = useState(true);
   const [lowStockLoading, setLowStockLoading] = useState(true);
+  const [expiryLoading, setExpiryLoading] = useState(true);
   const [error, setError] = useState("");
 
   const [showForm, setShowForm] = useState(false);
@@ -31,10 +43,18 @@ function RetailerDashboard() {
   const [formData, setFormData] = useState({
     productName: "",
     sku: "",
+    barcode: "",
+    brand: "",
     category: "",
+    unit: "piece",
+    batchNumber: "",
+    manufacturingDate: "",
+    expiryDate: "",
     quantity: "",
-    price: "",
+    purchasePrice: "",
+    sellingPrice: "",
     reorderLevel: "10",
+    supplierName: "",
   });
 
   async function loadInventory() {
@@ -68,10 +88,52 @@ function RetailerDashboard() {
     }
   }
 
+  async function loadExpiryData() {
+    try {
+      setExpiryLoading(true);
+
+      const [expiredData, expiringSoonData] = await Promise.all([
+        getExpiredInventory(getToken),
+        getExpiringSoonInventory(getToken),
+      ]);
+
+      setExpiredInventory(expiredData.inventory);
+      setExpiringSoonInventory(expiringSoonData.inventory);
+    } catch (error) {
+      console.error("Expiry inventory error:", error);
+      setError(error.message || "Failed to load expiry information");
+    } finally {
+      setExpiryLoading(false);
+    }
+  }
+
+  async function loadForecast(sku) {
+    try {
+      setForecastLoading(true);
+      setForecastError("");
+
+      const data = await getDemandForecast(
+        sku,
+        getToken
+      );
+
+      setForecast(data);
+    } catch (error) {
+      console.error("Demand forecast error:", error);
+      setForecast(null);
+      setForecastError(
+        error.message || "Failed to load demand forecast"
+      );
+    } finally {
+      setForecastLoading(false);
+    }
+  }
+
   async function loadDashboardData() {
     await Promise.all([
       loadInventory(),
       loadLowStockInventory(),
+      loadExpiryData(),
     ]);
   }
 
@@ -92,10 +154,18 @@ function RetailerDashboard() {
     setFormData({
       productName: "",
       sku: "",
+      barcode: "",
+      brand: "",
       category: "",
+      unit: "piece",
+      batchNumber: "",
+      manufacturingDate: "",
+      expiryDate: "",
       quantity: "",
-      price: "",
+      purchasePrice: "",
+      sellingPrice: "",
       reorderLevel: "10",
+      supplierName: "",
     });
 
     setEditingId(null);
@@ -108,26 +178,64 @@ function RetailerDashboard() {
     setFormData({
       productName: "",
       sku: "",
+      barcode: "",
+      brand: "",
       category: "",
+      unit: "piece",
+      batchNumber: "",
+      manufacturingDate: "",
+      expiryDate: "",
       quantity: "",
-      price: "",
+      purchasePrice: "",
+      sellingPrice: "",
       reorderLevel: "10",
+      supplierName: "",
     });
 
     setError("");
     setShowForm(true);
   }
 
+  function formatDateForInput(date) {
+    if (!date) {
+      return "";
+    }
+
+    return new Date(date).toISOString().split("T")[0];
+  }
+
+  function formatDateForDisplay(date) {
+    if (!date) {
+      return "-";
+    }
+
+    return new Date(date).toLocaleDateString("en-IN");
+  }
+
   function handleEditClick(item) {
     setEditingId(item._id);
 
     setFormData({
-      productName: item.productName,
-      sku: item.sku,
-      category: item.category,
-      quantity: String(item.quantity),
-      price: String(item.price),
-      reorderLevel: String(item.reorderLevel),
+      productName: item.productName || "",
+      sku: item.sku || "",
+      barcode: item.barcode || "",
+      brand: item.brand || "",
+      category: item.category || "",
+      unit: item.unit || "piece",
+      batchNumber: item.batchNumber || "",
+      manufacturingDate: formatDateForInput(
+        item.manufacturingDate
+      ),
+      expiryDate: formatDateForInput(item.expiryDate),
+      quantity: String(item.quantity ?? ""),
+      purchasePrice: String(
+        item.purchasePrice ?? item.price ?? ""
+      ),
+      sellingPrice: String(
+        item.sellingPrice ?? item.price ?? ""
+      ),
+      reorderLevel: String(item.reorderLevel ?? 10),
+      supplierName: item.supplierName || "",
     });
 
     setError("");
@@ -141,13 +249,45 @@ function RetailerDashboard() {
       setSubmitting(true);
       setError("");
 
+      if (
+        formData.manufacturingDate &&
+        formData.expiryDate &&
+        new Date(formData.expiryDate) <
+          new Date(formData.manufacturingDate)
+      ) {
+        setError(
+          "Expiry date cannot be before manufacturing date."
+        );
+        setSubmitting(false);
+        return;
+      }
+
       const product = {
         productName: formData.productName,
         sku: formData.sku,
+        barcode: formData.barcode || null,
+        brand: formData.brand || null,
         category: formData.category,
+        unit: formData.unit,
+        batchNumber: formData.batchNumber || null,
+        manufacturingDate:
+          formData.manufacturingDate || null,
+        expiryDate: formData.expiryDate || null,
         quantity: Number(formData.quantity),
-        price: Number(formData.price),
+        purchasePrice:
+          formData.purchasePrice === ""
+            ? null
+            : Number(formData.purchasePrice),
+        sellingPrice:
+          formData.sellingPrice === ""
+            ? null
+            : Number(formData.sellingPrice),
+        price:
+          formData.sellingPrice === ""
+            ? null
+            : Number(formData.sellingPrice),
         reorderLevel: Number(formData.reorderLevel),
+        supplierName: formData.supplierName || null,
       };
 
       if (editingId) {
@@ -163,7 +303,10 @@ function RetailerDashboard() {
           )
         );
       } else {
-        const data = await createInventoryItem(product, getToken);
+        const data = await createInventoryItem(
+          product,
+          getToken
+        );
 
         setInventory((currentInventory) => [
           data.inventory,
@@ -171,7 +314,10 @@ function RetailerDashboard() {
         ]);
       }
 
-      await loadLowStockInventory();
+      await Promise.all([
+        loadLowStockInventory(),
+        loadExpiryData(),
+      ]);
 
       resetForm();
     } catch (error) {
@@ -200,7 +346,10 @@ function RetailerDashboard() {
         currentInventory.filter((item) => item._id !== id)
       );
 
-      await loadLowStockInventory();
+      await Promise.all([
+        loadLowStockInventory(),
+        loadExpiryData(),
+      ]);
     } catch (error) {
       console.error("Delete inventory error:", error);
       setError(error.message || "Failed to delete product");
@@ -226,6 +375,16 @@ function RetailerDashboard() {
     return matchesSearch && matchesCategory;
   });
 
+  const filteredForecastProducts = inventory.filter((item) => {
+    const search = forecastSearchTerm.toLowerCase().trim();
+
+    return (
+      item.productName.toLowerCase().includes(search) ||
+      item.sku.toLowerCase().includes(search) ||
+      item.category.toLowerCase().includes(search)
+    );
+  });
+
   return (
     <div>
       <div>
@@ -245,6 +404,7 @@ function RetailerDashboard() {
 
       {error && <p>{error}</p>}
 
+      {/* LOW STOCK */}
       <div>
         <h3>Low Stock</h3>
 
@@ -287,6 +447,257 @@ function RetailerDashboard() {
 
       <hr />
 
+      {/* EXPIRY INFORMATION */}
+      <div>
+        <h3>Expiry Alerts</h3>
+
+        {expiryLoading ? (
+          <p>Checking expiry dates...</p>
+        ) : (
+          <>
+            <h4>
+              ⚠️ Expired Products: {expiredInventory.length}
+            </h4>
+
+            {expiredInventory.length > 0 && (
+              <table border="1" cellPadding="10">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>SKU</th>
+                    <th>Batch</th>
+                    <th>Quantity</th>
+                    <th>Expiry Date</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {expiredInventory.map((item) => (
+                    <tr key={item._id}>
+                      <td>{item.productName}</td>
+                      <td>{item.sku}</td>
+                      <td>{item.batchNumber || "-"}</td>
+                      <td>{item.quantity}</td>
+                      <td>
+                        {formatDateForDisplay(item.expiryDate)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            <br />
+
+            <h4>
+              ⏰ Expiring Within 7 Days:{" "}
+              {expiringSoonInventory.length}
+            </h4>
+
+            {expiringSoonInventory.length > 0 && (
+              <table border="1" cellPadding="10">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>SKU</th>
+                    <th>Batch</th>
+                    <th>Quantity</th>
+                    <th>Expiry Date</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {expiringSoonInventory.map((item) => (
+                    <tr key={item._id}>
+                      <td>{item.productName}</td>
+                      <td>{item.sku}</td>
+                      <td>{item.batchNumber || "-"}</td>
+                      <td>{item.quantity}</td>
+                      <td>
+                        {formatDateForDisplay(item.expiryDate)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
+        )}
+      </div>
+
+      <hr />
+
+      {/* DEMAND FORECAST */}
+      <div>
+        <h3>Demand Forecast</h3>
+
+        <p>
+          Select a product to view its predicted demand for the
+          next 7 days.
+        </p>
+
+        <input
+          type="text"
+          placeholder="Search product, SKU or category..."
+          value={forecastSearchTerm}
+          onChange={(event) => {
+            const value = event.target.value;
+
+            setForecastSearchTerm(value);
+            setForecastError("");
+
+            const search = value.toLowerCase().trim();
+
+            if (!search) {
+              setForecast(null);
+              return;
+            }
+
+            const matches = inventory.filter((item) => {
+              return (
+                item.productName
+                  .toLowerCase()
+                  .includes(search) ||
+                item.sku
+                  .toLowerCase()
+                  .includes(search) ||
+                item.category
+                  .toLowerCase()
+                  .includes(search)
+              );
+            });
+
+            // If the search identifies exactly one product,
+            // automatically load its forecast.
+            if (matches.length === 1) {
+              loadForecast(matches[0].sku);
+            } else {
+              setForecast(null);
+            }
+          }}
+        />
+
+        <br />
+        <br />
+
+        {forecastSearchTerm &&
+          filteredForecastProducts.length > 0 && (
+            <div>
+              <p>
+                {filteredForecastProducts.length} product
+                {filteredForecastProducts.length !== 1 ? "s" : ""} found.
+              </p>
+
+              {filteredForecastProducts.map((item) => (
+                <button
+                  key={item._id}
+                  type="button"
+                  onClick={() => {
+                    setForecastSearchTerm(item.productName);
+                    loadForecast(item.sku);
+                  }}
+                  style={{
+                    marginRight: "8px",
+                    marginBottom: "8px",
+                  }}
+                >
+                  {item.productName} ({item.sku})
+                </button>
+              ))}
+            </div>
+          )}
+
+        {forecastSearchTerm &&
+          filteredForecastProducts.length === 0 && (
+            <p>No products found.</p>
+          )}
+
+        {!forecastSearchTerm && (
+          <select
+            value={forecast?.sku || ""}
+            onChange={(event) => {
+              const selectedSku = event.target.value;
+
+              if (!selectedSku) {
+                setForecast(null);
+                setForecastError("");
+                return;
+              }
+
+              loadForecast(selectedSku);
+            }}
+          >
+            <option value="">Select a product</option>
+
+            {inventory.map((item) => (
+              <option key={item._id} value={item.sku}>
+                {item.productName} ({item.sku})
+              </option>
+            ))}
+          </select>
+        )}
+
+        {forecastLoading && (
+          <p>Generating demand forecast...</p>
+        )}
+
+        {forecastError && (
+          <p>{forecastError}</p>
+        )}
+
+        {forecast && !forecastLoading && (
+          <div>
+            <h4>
+              {forecast.productName} ({forecast.sku})
+            </h4>
+
+            <p>
+              Model: {forecast.model}
+            </p>
+
+            <p>
+              Historical days used:{" "}
+              {forecast.historicalDaysUsed}
+            </p>
+
+            <p>
+              Average daily demand:{" "}
+              {forecast.averageDailyDemand} units
+            </p>
+
+            <p>
+              Total historical demand:{" "}
+              {forecast.totalHistoricalDemand} units
+            </p>
+
+            <h4>Next 7 Days</h4>
+
+            <table border="1" cellPadding="10">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Predicted Demand</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {forecast.forecast.map((day) => (
+                  <tr key={day.date}>
+                    <td>{day.date}</td>
+                    <td>
+                      {day.predictedDemand} units
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <hr />
+
+      {/* PRODUCT FORM */}
       {showForm && (
         <div>
           <h3>
@@ -302,7 +713,7 @@ function RetailerDashboard() {
                 name="productName"
                 value={formData.productName}
                 onChange={handleInputChange}
-                placeholder="e.g. Laptop"
+                placeholder="e.g. Aashirvaad Atta"
                 required
               />
             </div>
@@ -317,8 +728,36 @@ function RetailerDashboard() {
                 name="sku"
                 value={formData.sku}
                 onChange={handleInputChange}
-                placeholder="e.g. LAP-001"
+                placeholder="e.g. ATTA-5KG"
                 required
+              />
+            </div>
+
+            <br />
+
+            <div>
+              <label>Barcode</label>
+              <br />
+              <input
+                type="text"
+                name="barcode"
+                value={formData.barcode}
+                onChange={handleInputChange}
+                placeholder="e.g. 8901234567890"
+              />
+            </div>
+
+            <br />
+
+            <div>
+              <label>Brand</label>
+              <br />
+              <input
+                type="text"
+                name="brand"
+                value={formData.brand}
+                onChange={handleInputChange}
+                placeholder="e.g. Aashirvaad"
               />
             </div>
 
@@ -332,8 +771,70 @@ function RetailerDashboard() {
                 name="category"
                 value={formData.category}
                 onChange={handleInputChange}
-                placeholder="e.g. Electronics"
+                placeholder="e.g. Groceries"
                 required
+              />
+            </div>
+
+            <br />
+
+            <div>
+              <label>Unit</label>
+              <br />
+              <select
+                name="unit"
+                value={formData.unit}
+                onChange={handleInputChange}
+              >
+                <option value="piece">Piece</option>
+                <option value="packet">Packet</option>
+                <option value="box">Box</option>
+                <option value="bottle">Bottle</option>
+                <option value="can">Can</option>
+                <option value="kg">Kg</option>
+                <option value="gram">Gram</option>
+                <option value="litre">Litre</option>
+                <option value="ml">ML</option>
+              </select>
+            </div>
+
+            <br />
+
+            <div>
+              <label>Batch Number</label>
+              <br />
+              <input
+                type="text"
+                name="batchNumber"
+                value={formData.batchNumber}
+                onChange={handleInputChange}
+                placeholder="e.g. BTH-2026-091"
+              />
+            </div>
+
+            <br />
+
+            <div>
+              <label>Manufacturing Date</label>
+              <br />
+              <input
+                type="date"
+                name="manufacturingDate"
+                value={formData.manufacturingDate}
+                onChange={handleInputChange}
+              />
+            </div>
+
+            <br />
+
+            <div>
+              <label>Expiry Date</label>
+              <br />
+              <input
+                type="date"
+                name="expiryDate"
+                value={formData.expiryDate}
+                onChange={handleInputChange}
               />
             </div>
 
@@ -348,7 +849,7 @@ function RetailerDashboard() {
                 value={formData.quantity}
                 onChange={handleInputChange}
                 min="0"
-                placeholder="e.g. 25"
+                placeholder="e.g. 50"
                 required
               />
             </div>
@@ -356,17 +857,32 @@ function RetailerDashboard() {
             <br />
 
             <div>
-              <label>Price</label>
+              <label>Purchase Price</label>
               <br />
               <input
                 type="number"
-                name="price"
-                value={formData.price}
+                name="purchasePrice"
+                value={formData.purchasePrice}
                 onChange={handleInputChange}
                 min="0"
                 step="0.01"
-                placeholder="e.g. 55000"
-                required
+                placeholder="e.g. 220"
+              />
+            </div>
+
+            <br />
+
+            <div>
+              <label>Selling Price</label>
+              <br />
+              <input
+                type="number"
+                name="sellingPrice"
+                value={formData.sellingPrice}
+                onChange={handleInputChange}
+                min="0"
+                step="0.01"
+                placeholder="e.g. 250"
               />
             </div>
 
@@ -388,6 +904,20 @@ function RetailerDashboard() {
 
             <br />
 
+            <div>
+              <label>Supplier Name</label>
+              <br />
+              <input
+                type="text"
+                name="supplierName"
+                value={formData.supplierName}
+                onChange={handleInputChange}
+                placeholder="e.g. Metro Distributors"
+              />
+            </div>
+
+            <br />
+
             <button type="submit" disabled={submitting}>
               {submitting
                 ? "Saving..."
@@ -395,6 +925,8 @@ function RetailerDashboard() {
                   ? "Update Product"
                   : "Add Product"}
             </button>
+
+            {" "}
 
             <button
               type="button"
@@ -409,6 +941,7 @@ function RetailerDashboard() {
 
       <hr />
 
+      {/* SEARCH AND FILTER */}
       <div>
         <input
           type="text"
@@ -437,6 +970,7 @@ function RetailerDashboard() {
 
       <br />
 
+      {/* INVENTORY TABLE */}
       {loading && <p>Loading inventory...</p>}
 
       {!loading && !error && inventory.length === 0 && (
@@ -460,9 +994,12 @@ function RetailerDashboard() {
             <tr>
               <th>Product</th>
               <th>SKU</th>
+              <th>Brand</th>
               <th>Category</th>
               <th>Quantity</th>
-              <th>Price</th>
+              <th>Unit</th>
+              <th>Selling Price</th>
+              <th>Expiry Date</th>
               <th>Reorder Level</th>
               <th>Status</th>
               <th>Actions</th>
@@ -476,31 +1013,69 @@ function RetailerDashboard() {
                   lowStockItem._id === item._id
               );
 
+              const isExpired = expiredInventory.some(
+                (expiredItem) =>
+                  expiredItem._id === item._id
+              );
+
+              const isExpiringSoon =
+                expiringSoonInventory.some(
+                  (expiringItem) =>
+                    expiringItem._id === item._id
+                );
+
               return (
                 <tr
                   key={item._id}
                   style={
-                    isLowStock
+                    isExpired
                       ? {
-                          backgroundColor: "#ffe5e5",
+                          backgroundColor: "#ffcccc",
                         }
-                      : {}
+                      : isExpiringSoon
+                        ? {
+                            backgroundColor: "#fff0cc",
+                          }
+                        : isLowStock
+                          ? {
+                              backgroundColor: "#ffe5e5",
+                            }
+                          : {}
                   }
                 >
                   <td>{item.productName}</td>
 
                   <td>{item.sku}</td>
 
+                  <td>{item.brand || "-"}</td>
+
                   <td>{item.category}</td>
 
                   <td>{item.quantity}</td>
 
-                  <td>₹{item.price}</td>
+                  <td>{item.unit || "piece"}</td>
+
+                  <td>
+                    ₹
+                    {item.sellingPrice ??
+                      item.price ??
+                      "-"}
+                  </td>
+
+                  <td>
+                    {formatDateForDisplay(
+                      item.expiryDate
+                    )}
+                  </td>
 
                   <td>{item.reorderLevel}</td>
 
                   <td>
-                    {isLowStock ? (
+                    {isExpired ? (
+                      <strong>❌ EXPIRED</strong>
+                    ) : isExpiringSoon ? (
+                      <strong>⏰ EXPIRING SOON</strong>
+                    ) : isLowStock ? (
                       <strong>⚠️ LOW STOCK</strong>
                     ) : (
                       "✓ Normal"

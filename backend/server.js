@@ -2,10 +2,14 @@ const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
 const { clerkMiddleware } = require("@clerk/express");
+const forecastRoutes = require("./routes/forecastRoutes");
 
 const testRoutes = require("./routes/testRoutes");
 const userRoutes = require("./routes/userRoutes");
 const inventoryRoutes = require("./routes/inventoryRoutes");
+const saleRoutes = require("./routes/saleRoutes");
+const expiryRoutes = require("./routes/expiryRoutes");
+
 
 require("dotenv").config();
 
@@ -18,7 +22,9 @@ app.use(clerkMiddleware());
 app.use("/api/test", testRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/inventory", inventoryRoutes);
-
+app.use("/api/sales", saleRoutes);
+app.use("/api/expiry", expiryRoutes);
+app.use("/api/forecast", forecastRoutes);
 
 app.get("/", (req, res) => {
   res.json({

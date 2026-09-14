@@ -21,10 +21,44 @@ const inventorySchema = new mongoose.Schema(
       uppercase: true,
     },
 
+    barcode: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+
+    brand: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+
     category: {
       type: String,
       required: true,
       trim: true,
+    },
+
+    unit: {
+      type: String,
+      trim: true,
+      default: "piece",
+    },
+
+    batchNumber: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+
+    manufacturingDate: {
+      type: Date,
+      default: null,
+    },
+
+    expiryDate: {
+      type: Date,
+      default: null,
     },
 
     quantity: {
@@ -33,10 +67,23 @@ const inventorySchema = new mongoose.Schema(
       min: 0,
     },
 
+    purchasePrice: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
+
+    sellingPrice: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
+
+    // Kept temporarily for compatibility with existing products.
     price: {
       type: Number,
-      required: true,
       min: 0,
+      default: null,
     },
 
     reorderLevel: {
@@ -44,6 +91,12 @@ const inventorySchema = new mongoose.Schema(
       required: true,
       min: 0,
       default: 10,
+    },
+
+    supplierName: {
+      type: String,
+      trim: true,
+      default: null,
     },
   },
   {

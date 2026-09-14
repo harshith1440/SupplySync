@@ -20,18 +20,26 @@ router.post("/", requireRole("org:retailer"), async (req, res) => {
     const {
       productName,
       sku,
+      barcode,
+      brand,
       category,
+      unit,
+      batchNumber,
+      manufacturingDate,
+      expiryDate,
       quantity,
+      purchasePrice,
+      sellingPrice,
       price,
       reorderLevel,
+      supplierName,
     } = req.body;
 
     if (
       !productName ||
       !sku ||
       !category ||
-      quantity === undefined ||
-      price === undefined
+      quantity === undefined
     ) {
       return res.status(400).json({
         message: "All required fields must be provided",
@@ -40,12 +48,27 @@ router.post("/", requireRole("org:retailer"), async (req, res) => {
 
     const inventory = await Inventory.create({
       organizationId: auth.orgId,
+
       productName,
       sku,
+      barcode,
+      brand,
       category,
+      unit,
+      batchNumber,
+      manufacturingDate,
+      expiryDate,
       quantity,
-      price,
+
+      purchasePrice,
+      sellingPrice,
+
+      // Keep old price for compatibility with existing products.
+      price: price ?? sellingPrice,
+
       reorderLevel,
+
+      supplierName,
     });
 
     return res.status(201).json({
@@ -177,10 +200,19 @@ router.put("/:id", requireRole("org:retailer"), async (req, res) => {
     const {
       productName,
       sku,
+      barcode,
+      brand,
       category,
+      unit,
+      batchNumber,
+      manufacturingDate,
+      expiryDate,
       quantity,
+      purchasePrice,
+      sellingPrice,
       price,
       reorderLevel,
+      supplierName,
     } = req.body;
 
     const inventory = await Inventory.findOneAndUpdate(
@@ -191,10 +223,22 @@ router.put("/:id", requireRole("org:retailer"), async (req, res) => {
       {
         productName,
         sku,
+        barcode,
+        brand,
         category,
+        unit,
+        batchNumber,
+        manufacturingDate,
+        expiryDate,
         quantity,
-        price,
+        purchasePrice,
+        sellingPrice,
+
+        // Keep old price for compatibility.
+        price: price ?? sellingPrice,
+
         reorderLevel,
+        supplierName,
       },
       {
         new: true,
