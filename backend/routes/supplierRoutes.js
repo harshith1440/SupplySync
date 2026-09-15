@@ -1,4 +1,5 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const { getAuth } = require("@clerk/express");
 
 const Supplier = require("../models/Supplier");
@@ -9,6 +10,214 @@ const {
 } = require("../services/supplierService");
 
 const router = express.Router();
+
+/*
+========================================================
+GET CURRENT SUPPLIER PROFILE
+========================================================
+
+GET /api/suppliers/me
+
+Supplier login
+   ↓
+Clerk user ID
+   ↓
+Supplier.clerkUserId
+   ↓
+Specific supplier
+*/
+
+router.get(
+  "/me",
+  requireRole("org:supplier"),
+  async (req, res) => {
+    try {
+      const auth = getAuth(req);
+
+      if (!auth.orgId) {
+        return res.status(400).json({
+          message: "Organization not found",
+        });
+      }
+
+      if (!auth.userId) {
+        return res.status(401).json({
+          message: "User not authenticated",
+        });
+      }
+
+      const supplier = await Supplier.findOne({
+        organizationId: auth.orgId,
+        clerkUserId: auth.userId,
+        active: true,
+      }).lean();
+
+      if (!supplier) {
+        return res.status(404).json({
+          message:
+            "No supplier profile is linked to this account",
+        });
+      }
+
+      return res.status(200).json({
+        message: "Supplier profile fetched successfully",
+        supplier,
+      });
+    } catch (error) {
+      console.error(
+        "Fetch current supplier profile error:",
+        error
+      );
+
+      return res.status(500).json({
+        message:
+          "Failed to fetch supplier profile",
+        error: error.message,
+      });
+    }
+  }
+);
+
+/*
+========================================================
+MAP CLERK USER TO SUPPLIER
+========================================================
+
+POST /api/suppliers/admin/map-user
+
+Admin provides:
+
+{
+  "supplierId": "...",
+  "clerkUserId": "user_..."
+}
+
+This connects one Clerk supplier account
+to one supplier record.
+*/
+
+router.post(
+  "/admin/map-user",
+  requireRole("org:admin"),
+  async (req, res) => {
+    try {
+      const auth = getAuth(req);
+
+      if (!auth.orgId) {
+        return res.status(400).json({
+          message: "Organization not found",
+        });
+      }
+
+      const {
+        supplierId,
+        clerkUserId,
+      } = req.body;
+
+      if (!supplierId) {
+        return res.status(400).json({
+          message: "supplierId is required",
+        });
+      }
+
+      if (!mongoose.Types.ObjectId.isValid(supplierId)) {
+        return res.status(400).json({
+          message: "Invalid supplier ID",
+        });
+      }
+
+      if (!clerkUserId) {
+        return res.status(400).json({
+          message: "clerkUserId is required",
+        });
+      }
+
+      if (
+        typeof clerkUserId !== "string" ||
+        !clerkUserId.trim()
+      ) {
+        return res.status(400).json({
+          message: "Invalid Clerk user ID",
+        });
+      }
+
+      const normalizedClerkUserId =
+        clerkUserId.trim();
+
+      const supplier = await Supplier.findOne({
+        _id: supplierId,
+        organizationId: auth.orgId,
+      });
+
+      if (!supplier) {
+        return res.status(404).json({
+          message: "Supplier not found",
+        });
+      }
+
+      const supplierWithUser =
+        await Supplier.findOne({
+          organizationId: auth.orgId,
+          clerkUserId:
+            normalizedClerkUserId,
+          _id: {
+            $ne: supplier._id,
+          },
+        });
+
+      if (supplierWithUser) {
+        return res.status(409).json({
+          message:
+            "This Clerk user is already linked to another supplier",
+          supplier: {
+            id: supplierWithUser._id,
+            supplierName:
+              supplierWithUser.supplierName,
+          },
+        });
+      }
+
+      if (
+        supplier.clerkUserId &&
+        supplier.clerkUserId !==
+          normalizedClerkUserId
+      ) {
+        return res.status(409).json({
+          message:
+            "This supplier is already linked to another Clerk user",
+        });
+      }
+
+      supplier.clerkUserId =
+        normalizedClerkUserId;
+
+      await supplier.save();
+
+      return res.status(200).json({
+        message:
+          "Supplier successfully linked to Clerk user",
+        supplier: {
+          id: supplier._id,
+          supplierName:
+            supplier.supplierName,
+          clerkUserId:
+            supplier.clerkUserId,
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Map supplier Clerk user error:",
+        error
+      );
+
+      return res.status(500).json({
+        message:
+          "Failed to map supplier to Clerk user",
+        error: error.message,
+      });
+    }
+  }
+);
 
 /*
 ========================================================

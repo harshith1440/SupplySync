@@ -372,6 +372,11 @@ router.post(
         paymentTransaction.paymentStatus ===
         "paid"
       ) {
+        purchaseOrder.paymentStatus = "paid";
+        purchaseOrder.orderStatus = "confirmed";
+
+        await purchaseOrder.save();
+
         return res.status(200).json({
           message:
             "Payment is already verified",
@@ -428,7 +433,7 @@ router.post(
 
       if (
         expectedBuffer.length !==
-        receivedBuffer.length ||
+          receivedBuffer.length ||
         !crypto.timingSafeEqual(
           expectedBuffer,
           receivedBuffer
@@ -557,6 +562,10 @@ router.post(
 
       purchaseOrder.paymentStatus =
         "paid";
+
+      // Successful payment confirms the purchase order.
+      purchaseOrder.orderStatus =
+        "confirmed";
 
       purchaseOrder.razorpayPaymentId =
         razorpayPaymentId;

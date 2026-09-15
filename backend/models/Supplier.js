@@ -52,6 +52,16 @@ const supplierSchema = new mongoose.Schema(
       index: true,
     },
 
+    // Clerk user ID of the supplier account.
+    // Optional so existing supplier documents continue to work
+    // until they are explicitly mapped to a supplier login.
+    clerkUserId: {
+      type: String,
+      trim: true,
+      default: null,
+      index: true,
+    },
+
     supplierName: {
       type: String,
       required: true,
@@ -117,6 +127,21 @@ supplierSchema.index({
   organizationId: 1,
   supplierName: 1,
 });
+
+supplierSchema.index(
+  {
+    organizationId: 1,
+    clerkUserId: 1,
+  },
+  {
+    unique: true,
+    partialFilterExpression: {
+      clerkUserId: {
+        $type: "string",
+      },
+    },
+  }
+);
 
 module.exports = mongoose.model(
   "Supplier",

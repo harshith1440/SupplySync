@@ -1,5 +1,8 @@
 const express = require("express");
-const { getAuth } = require("@clerk/express");
+const {
+  getAuth,
+  clerkClient,
+} = require("@clerk/express");
 
 const PurchaseOrder = require("../models/PurchaseOrder");
 const Supplier = require("../models/Supplier");
@@ -24,16 +27,9 @@ Expected body:
     {
       "sku": "ATTA-5KG",
       "quantity": 20
-    },
-    {
-      "sku": "MK001",
-      "quantity": 30
     }
   ]
 }
-
-One supplier can have multiple products
-inside one purchase order.
 */
 
 router.post(
@@ -46,6 +42,12 @@ router.post(
       if (!auth.orgId) {
         return res.status(400).json({
           message: "Organization not found",
+        });
+      }
+
+      if (!auth.userId) {
+        return res.status(400).json({
+          message: "Retailer user not found",
         });
       }
 
@@ -69,6 +71,42 @@ router.post(
 
       /*
       --------------------------------------------------
+      GET RETAILER DETAILS FROM CLERK
+      --------------------------------------------------
+      */
+
+      let retailerName = null;
+      let retailerEmail = null;
+
+      try {
+        const retailer =
+          await clerkClient.users.getUser(
+            auth.userId
+          );
+
+        retailerName =
+          retailer.fullName ||
+          retailer.username ||
+          null;
+
+        retailerEmail =
+          retailer.primaryEmailAddress
+            ?.emailAddress || null;
+      } catch (clerkError) {
+        console.error(
+          "Fetch retailer details from Clerk error:",
+          clerkError
+        );
+
+        /*
+        Do not fail PO creation only because
+        retailer display information could not
+        be fetched.
+        */
+      }
+
+      /*
+      --------------------------------------------------
       FIND SUPPLIER
       --------------------------------------------------
       */
@@ -88,7 +126,7 @@ router.post(
 
       /*
       --------------------------------------------------
-      PREVENT DUPLICATE SKUs
+      NORMALIZE ITEMS
       --------------------------------------------------
       */
 
@@ -144,6 +182,7 @@ router.post(
         /*
         Find product inside supplier catalog
         */
+
         const supplierProduct =
           supplier.products.find(
             (product) =>
@@ -203,8 +242,7 @@ router.post(
         }
 
         /*
-        Calculate item total on backend.
-        Never trust frontend price calculations.
+        Calculate item total on backend
         */
 
         const totalPrice =
@@ -256,6 +294,12 @@ router.post(
       const purchaseOrder =
         await PurchaseOrder.create({
           organizationId: auth.orgId,
+
+          retailerUserId: auth.userId,
+
+          retailerName,
+
+          retailerEmail,
 
           supplierId: supplier._id,
 

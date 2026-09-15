@@ -76,6 +76,37 @@ const purchaseOrderSchema = new mongoose.Schema(
       index: true,
     },
 
+    /*
+    ------------------------------------------------------
+    RETAILER DETAILS
+    ------------------------------------------------------
+    */
+
+    retailerUserId: {
+      type: String,
+      required: true,
+      index: true,
+    },
+
+    retailerName: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+
+    retailerEmail: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      default: null,
+    },
+
+    /*
+    ------------------------------------------------------
+    SUPPLIER DETAILS
+    ------------------------------------------------------
+    */
+
     supplierId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Supplier",
@@ -173,6 +204,12 @@ INDEXES
 purchaseOrderSchema.index({
   organizationId: 1,
   supplierId: 1,
+  createdAt: -1,
+});
+
+purchaseOrderSchema.index({
+  organizationId: 1,
+  retailerUserId: 1,
   createdAt: -1,
 });
 

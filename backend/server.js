@@ -3,6 +3,7 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const { clerkMiddleware } = require("@clerk/express");
 
+const adminTransactionRoutes = require("./routes/adminTransactionRoutes");
 const testRoutes = require("./routes/testRoutes");
 const userRoutes = require("./routes/userRoutes");
 const inventoryRoutes = require("./routes/inventoryRoutes");
@@ -13,6 +14,7 @@ const supplierRoutes = require("./routes/supplierRoutes");
 const purchaseOrderRoutes = require("./routes/purchaseOrderRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const payoutRoutes = require("./routes/payoutRoutes");
+const supplierDashboardRoutes = require("./routes/supplierDashboardRoutes");
 
 require("dotenv").config();
 
@@ -32,6 +34,14 @@ app.use("/api/suppliers", supplierRoutes);
 app.use("/api/purchase-orders", purchaseOrderRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/payouts", payoutRoutes);
+app.use(
+  "/api/supplier-dashboard",
+  supplierDashboardRoutes
+);
+app.use(
+  "/api/admin/transactions",
+  adminTransactionRoutes
+);
 
 app.get("/", (req, res) => {
   res.json({
