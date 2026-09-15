@@ -94,3 +94,30 @@ export async function getPurchaseOrder(
     getToken
   );
 }
+
+export async function markPurchaseOrderDelivered(
+  purchaseOrderId,
+  getToken
+) {
+  return apiRequest(
+    `/${encodeURIComponent(purchaseOrderId)}/delivered`,
+    { method: "PATCH" },
+    getToken
+  );
+}
+
+export async function submitSupplierFeedback(
+  purchaseOrderId,
+  rating,
+  comment,
+  getToken
+) {
+  return apiRequest(
+    `/${encodeURIComponent(purchaseOrderId)}/feedback`,
+    {
+      method: "POST",
+      body: JSON.stringify({ rating, comment }),
+    },
+    getToken
+  );
+}

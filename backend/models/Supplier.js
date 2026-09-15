@@ -15,10 +15,22 @@ const supplierProductSchema = new mongoose.Schema(
       trim: true,
     },
 
+    brand: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+
     category: {
       type: String,
       required: true,
       trim: true,
+    },
+
+    unit: {
+      type: String,
+      trim: true,
+      default: "piece",
     },
 
     unitPrice: {
@@ -37,6 +49,37 @@ const supplierProductSchema = new mongoose.Schema(
       type: Number,
       required: true,
       min: 0,
+    },
+
+    active: {
+      type: Boolean,
+      default: true,
+    },
+    supplierId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Supplier",
+      default: null,
+    },
+
+    organizationId: {
+      type: String,
+      default: null,
+    },
+
+    leadTimeDays: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
+
+    manufacturingDate: {
+      type: Date,
+      default: null,
+    },
+
+    expiryDate: {
+      type: Date,
+      default: null,
     },
   },
   {
@@ -68,6 +111,12 @@ const supplierSchema = new mongoose.Schema(
       trim: true,
     },
 
+    businessName: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+
     contactPerson: {
       type: String,
       trim: true,
@@ -87,6 +136,19 @@ const supplierSchema = new mongoose.Schema(
       default: null,
     },
 
+    addressLine1: { type: String, trim: true, default: null },
+    addressLine2: { type: String, trim: true, default: null },
+    city: { type: String, trim: true, default: null },
+    state: { type: String, trim: true, default: null },
+    pincode: { type: String, trim: true, default: null },
+    country: { type: String, trim: true, default: null },
+    description: { type: String, trim: true, default: null },
+
+    address: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+
     products: {
       type: [supplierProductSchema],
       required: true,
@@ -96,12 +158,14 @@ const supplierSchema = new mongoose.Schema(
     leadTimeDays: {
       type: Number,
       required: true,
+      default: 0,
       min: 0,
     },
 
     reliabilityScore: {
       type: Number,
       required: true,
+      default: 0,
       min: 0,
       max: 100,
     },
@@ -109,6 +173,7 @@ const supplierSchema = new mongoose.Schema(
     rating: {
       type: Number,
       required: true,
+      default: 0,
       min: 0,
       max: 5,
     },

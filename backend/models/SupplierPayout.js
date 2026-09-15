@@ -15,6 +15,12 @@ const supplierPayoutSchema = new mongoose.Schema(
       index: true,
     },
 
+    supplierOrganizationId: {
+      type: String,
+      required: true,
+      index: true,
+    },
+
     supplierName: {
       type: String,
       required: true,
@@ -109,6 +115,12 @@ const supplierPayoutSchema = new mongoose.Schema(
 
 supplierPayoutSchema.index({
   organizationId: 1,
+  supplierId: 1,
+  createdAt: -1,
+});
+
+supplierPayoutSchema.index({
+  supplierOrganizationId: 1,
   supplierId: 1,
   createdAt: -1,
 });

@@ -8,6 +8,12 @@ const saleSchema = new mongoose.Schema(
       index: true,
     },
 
+    retailerUserId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+
     inventoryId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Inventory",
@@ -67,22 +73,51 @@ const saleSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+
+    idempotencyKey: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+
+    isSynthetic: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    syntheticSource: {
+      type: String,
+      trim: true,
+      default: null,
+    },
   },
   {
     timestamps: true,
   }
 );
 
-// Prevent duplicate daily sales records
-// for the same product within an organization.
 saleSchema.index(
   {
     organizationId: 1,
+    retailerUserId: 1,
     sku: 1,
     saleDate: 1,
   },
+  { unique: false }
+);
+
+saleSchema.index(
+  {
+    organizationId: 1,
+    retailerUserId: 1,
+    idempotencyKey: 1,
+  },
   {
     unique: true,
+    partialFilterExpression: {
+      idempotencyKey: { $type: "string" },
+    },
   }
 );
 

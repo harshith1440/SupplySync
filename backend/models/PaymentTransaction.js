@@ -14,9 +14,21 @@ const paymentTransactionSchema = new mongoose.Schema(
       index: true,
     },
 
+    retailerName: { type: String, trim: true, default: null },
+    retailerEmail: { type: String, trim: true, lowercase: true, default: null },
+    retailerPhone: { type: String, trim: true, default: null },
+    retailerAddress: { type: mongoose.Schema.Types.Mixed, default: null },
+    deliveryAddress: { type: mongoose.Schema.Types.Mixed, default: null },
+
     supplierId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Supplier",
+      required: true,
+      index: true,
+    },
+
+    supplierOrganizationId: {
+      type: String,
       required: true,
       index: true,
     },
@@ -125,6 +137,12 @@ paymentTransactionSchema.index({
 });
 
 paymentTransactionSchema.index({
+  supplierId: 1,
+  createdAt: -1,
+});
+
+paymentTransactionSchema.index({
+  supplierOrganizationId: 1,
   supplierId: 1,
   createdAt: -1,
 });

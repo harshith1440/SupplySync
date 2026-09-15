@@ -2,6 +2,9 @@ const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
 const { clerkMiddleware } = require("@clerk/express");
+const Inventory = require("./models/Inventory");
+const Sale = require("./models/Sale");
+const SupplierFeedback = require("./models/SupplierFeedback");
 
 const adminTransactionRoutes = require("./routes/adminTransactionRoutes");
 const testRoutes = require("./routes/testRoutes");
@@ -54,6 +57,10 @@ const PORT = process.env.PORT || 5000;
 async function startServer() {
   try {
     await mongoose.connect(process.env.MONGO_URI);
+
+    await Inventory.syncIndexes();
+    await Sale.syncIndexes();
+    await SupplierFeedback.syncIndexes();
 
     console.log("MongoDB connected successfully");
 

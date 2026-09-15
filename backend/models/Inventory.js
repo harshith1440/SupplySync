@@ -8,6 +8,29 @@ const inventorySchema = new mongoose.Schema(
       index: true,
     },
 
+    retailerUserId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+
+    supplierId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Supplier",
+      default: null,
+    },
+
+    sourcePurchaseOrderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "PurchaseOrder",
+      default: null,
+    },
+
+    sourceSupplierProduct: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+
     productName: {
       type: String,
       required: true,
@@ -106,8 +129,8 @@ const inventorySchema = new mongoose.Schema(
 
 // SKU should be unique inside an organization
 inventorySchema.index(
-  { organizationId: 1, sku: 1 },
-  { unique: true }
+  { organizationId: 1, retailerUserId: 1, sku: 1 },
+  { unique: true, partialFilterExpression: { retailerUserId: { $type: "string" } } }
 );
 
 module.exports = mongoose.model("Inventory", inventorySchema);

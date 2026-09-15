@@ -8,6 +8,10 @@ const router = express.Router();
 
 // CREATE inventory item
 router.post("/", requireRole("org:retailer"), async (req, res) => {
+  return res.status(403).json({
+    message: "Retailer inventory is created only through supplier purchases",
+  });
+
   try {
     const auth = getAuth(req);
 
@@ -48,6 +52,7 @@ router.post("/", requireRole("org:retailer"), async (req, res) => {
 
     const inventory = await Inventory.create({
       organizationId: auth.orgId,
+      retailerUserId: auth.userId,
 
       productName,
       sku,
@@ -106,6 +111,7 @@ router.get(
 
       const lowStockInventory = await Inventory.find({
         organizationId: auth.orgId,
+        retailerUserId: auth.userId,
         $expr: {
           $lte: ["$quantity", "$reorderLevel"],
         },
@@ -138,6 +144,7 @@ router.get("/", requireRole("org:retailer"), async (req, res) => {
 
     const inventory = await Inventory.find({
       organizationId: auth.orgId,
+      retailerUserId: auth.userId,
     }).sort({ createdAt: -1 });
 
     return res.status(200).json({
@@ -166,6 +173,7 @@ router.get("/:id", requireRole("org:retailer"), async (req, res) => {
     const inventory = await Inventory.findOne({
       _id: req.params.id,
       organizationId: auth.orgId,
+      retailerUserId: auth.userId,
     });
 
     if (!inventory) {
@@ -219,9 +227,11 @@ router.put("/:id", requireRole("org:retailer"), async (req, res) => {
       {
         _id: req.params.id,
         organizationId: auth.orgId,
+        retailerUserId: auth.userId,
       },
       {
         productName,
+        retailerUserId: auth.userId,
         sku,
         barcode,
         brand,
@@ -285,6 +295,7 @@ router.delete("/:id", requireRole("org:retailer"), async (req, res) => {
     const inventory = await Inventory.findOneAndDelete({
       _id: req.params.id,
       organizationId: auth.orgId,
+      retailerUserId: auth.userId,
     });
 
     if (!inventory) {

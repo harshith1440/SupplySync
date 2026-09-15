@@ -2,7 +2,8 @@ import os
 import sys
 import pickle
 import json
-from datetime import timedelta
+import random
+from datetime import date, datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -10,7 +11,13 @@ from pymongo import MongoClient
 from dotenv import load_dotenv
 
 
-load_dotenv()
+load_dotenv(
+    dotenv_path=os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        ".env"
+    )
+)
 
 
 # ============================================================
@@ -25,6 +32,21 @@ MODEL_PATH = os.path.join(
 
 FORECAST_DAYS = 7
 HISTORY_DAYS = 30
+MINIMUM_HISTORY_RECORDS = 60
+SYNTHETIC_SOURCE = "forecast_cold_start"
+
+
+class InsufficientHistoryError(Exception):
+    """Raised when the trained feature pipeline lacks enough history."""
+
+    def __init__(self, sku, found, required):
+        self.sku = sku
+        self.found = found
+        self.required = required
+        super().__init__(
+            f"Not enough historical feature data for SKU {sku}. "
+            f"Found {found} records. Need at least {required}."
+        )
 
 
 # ============================================================
@@ -91,7 +113,8 @@ def load_model():
 
 def load_latest_features(
     database,
-    sku
+    sku,
+    organization_id=None
 ):
     """
     Load the latest historical forecast
@@ -100,12 +123,13 @@ def load_latest_features(
 
     collection = database["forecastfeatures"]
 
+    query = {"sku": sku}
+
+    if organization_id:
+        query["organizationId"] = organization_id
+
     documents = list(
-        collection.find(
-            {
-                "sku": sku
-            }
-        )
+        collection.find(query)
         .sort(
             "saleDate",
             -1
@@ -115,24 +139,211 @@ def load_latest_features(
 
     if len(documents) < HISTORY_DAYS:
 
-        print(
-            f"❌ Not enough historical feature data "
-            f"for SKU {sku}.",
-            file=sys.stderr
+        raise InsufficientHistoryError(
+            sku,
+            len(documents),
+            HISTORY_DAYS
         )
-
-        print(
-            f"Found {len(documents)} records. "
-            f"Need at least {HISTORY_DAYS}.",
-            file=sys.stderr
-        )
-
-        sys.exit(1)
 
     # Convert to chronological order
     documents.reverse()
 
     return documents
+
+
+def load_real_sales(database, sku, organization_id):
+    """Load only retailer-recorded sales for a SKU and organization."""
+
+    return list(
+        database["sales"].find(
+            {
+                "sku": sku,
+                "organizationId": organization_id,
+                "isSynthetic": {"$ne": True},
+            }
+        ).sort("saleDate", 1)
+    )
+
+
+def synthetic_quantity(rng, product_name, category, sale_date):
+    """Create deterministic, bounded historical demand for cold start only."""
+
+    text = f"{product_name} {category}".lower()
+    if any(word in text for word in ["milk", "bread", "water"]):
+        base_demand = 7
+    elif any(word in text for word in ["oil", "rice", "atta", "flour"]):
+        base_demand = 4
+    elif any(word in text for word in ["soap", "shampoo", "detergent"]):
+        base_demand = 2
+    else:
+        base_demand = 3
+
+    weekend_multiplier = 1.15 if sale_date.weekday() >= 5 else 1
+    noise = rng.uniform(0.8, 1.2)
+    return max(0, round(base_demand * weekend_multiplier * noise))
+
+
+def build_cold_start_history(database, sku, organization_id):
+    """Persist marked historical samples while preserving all real sales."""
+
+    inventory = database["inventories"].find_one(
+        {"sku": sku, "organizationId": organization_id}
+    )
+    if not inventory:
+        raise ValueError(
+            f"Inventory not found for SKU {sku} in organization {organization_id}"
+        )
+
+    real_sales = load_real_sales(database, sku, organization_id)
+    real_sales_by_day = {}
+    for sale in real_sales:
+        sale_day = pd.to_datetime(sale["saleDate"]).date()
+        current = real_sales_by_day.setdefault(
+            sale_day,
+            {
+                "quantitySold": 0,
+                "sellingPrice": sale.get("sellingPrice", 0),
+                "discount": sale.get("discount", 0),
+                "promotion": sale.get("promotion", False),
+                "festival": sale.get("festival"),
+                "inventoryId": sale.get("inventoryId") or inventory["_id"],
+            },
+        )
+        current["quantitySold"] += float(sale.get("quantitySold", 0))
+
+    real_day_count = len(real_sales_by_day)
+    synthetic_count = max(0, MINIMUM_HISTORY_RECORDS - real_day_count)
+    earliest_real_day = min(real_sales_by_day) if real_sales_by_day else None
+    end_day = earliest_real_day - timedelta(days=1) if earliest_real_day else date.today()
+    start_day = end_day - timedelta(days=synthetic_count - 1)
+    rng = random.Random(f"{organization_id}:{sku}")
+
+    database["sales"].delete_many(
+        {
+            "sku": sku,
+            "organizationId": organization_id,
+            "isSynthetic": True,
+            "syntheticSource": SYNTHETIC_SOURCE,
+        }
+    )
+
+    synthetic_sales = []
+    for offset in range(synthetic_count):
+        sale_day = start_day + timedelta(days=offset)
+        synthetic_sales.append(
+            {
+                "organizationId": organization_id,
+                "retailerUserId": inventory.get("retailerUserId"),
+                "inventoryId": inventory["_id"],
+                "productName": inventory["productName"],
+                "sku": sku,
+                "category": inventory.get("category", "groceries"),
+                "quantitySold": synthetic_quantity(
+                    rng,
+                    inventory.get("productName", sku),
+                    inventory.get("category", "groceries"),
+                    sale_day,
+                ),
+                "sellingPrice": inventory.get("sellingPrice") or inventory.get("price") or inventory.get("purchasePrice") or 0,
+                "discount": 0,
+                "promotion": False,
+                "festival": None,
+                "saleDate": datetime.combine(sale_day, datetime.min.time()),
+                "isSynthetic": True,
+                "syntheticSource": SYNTHETIC_SOURCE,
+            }
+        )
+
+    if synthetic_sales:
+        database["sales"].insert_many(synthetic_sales)
+
+    history = []
+    for item in synthetic_sales:
+        history.append(item)
+    for sale_day in sorted(real_sales_by_day):
+        details = real_sales_by_day[sale_day]
+        history.append(
+            {
+                "organizationId": organization_id,
+                "inventoryId": details["inventoryId"],
+                "productName": inventory["productName"],
+                "sku": sku,
+                "category": inventory.get("category", "groceries"),
+                "quantitySold": details["quantitySold"],
+                "sellingPrice": details["sellingPrice"],
+                "discount": details["discount"],
+                "promotion": details["promotion"],
+                "festival": details["festival"],
+                "saleDate": datetime.combine(sale_day, datetime.min.time()),
+                "isSynthetic": False,
+                "syntheticSource": None,
+            }
+        )
+
+    features = []
+    demand_history = [float(item["quantitySold"]) for item in history]
+    for current_index in range(30, len(history)):
+        item = history[current_index]
+        sale_day = pd.to_datetime(item["saleDate"]).date()
+        previous7 = demand_history[max(0, current_index - 7):current_index]
+        previous14 = demand_history[max(0, current_index - 14):current_index]
+        previous30 = demand_history[max(0, current_index - 30):current_index]
+        features.append(
+            {
+                "organizationId": organization_id,
+                "inventoryId": item["inventoryId"],
+                "productName": item["productName"],
+                "sku": sku,
+                "category": item["category"],
+                "saleDate": datetime.combine(sale_day, datetime.min.time()),
+                "quantitySold": item["quantitySold"],
+                "sellingPrice": item["sellingPrice"],
+                "discount": item["discount"],
+                "promotion": item["promotion"],
+                "festival": item["festival"],
+                "dayOfWeek": sale_day.weekday(),
+                "dayOfMonth": sale_day.day,
+                "month": sale_day.month,
+                "weekOfYear": int(sale_day.isocalendar().week),
+                "isWeekend": sale_day.weekday() >= 5,
+                "lag1": demand_history[current_index - 1],
+                "lag7": demand_history[current_index - 7],
+                "lag14": demand_history[current_index - 14],
+                "lag30": demand_history[current_index - 30],
+                "rolling7Average": float(np.mean(previous7)),
+                "rolling14Average": float(np.mean(previous14)),
+                "rolling30Average": float(np.mean(previous30)),
+                "rolling7StdDev": float(np.std(previous7)),
+                "isSynthetic": item["isSynthetic"],
+                "syntheticSource": item["syntheticSource"],
+                "sourceRealSalesCount": len(real_sales),
+            }
+        )
+
+    database["forecastfeatures"].delete_many(
+        {"sku": sku, "organizationId": organization_id}
+    )
+    if features:
+        database["forecastfeatures"].insert_many(features)
+
+    return len(features), len(synthetic_sales), len(real_sales)
+
+
+def needs_cold_start(database, sku, organization_id):
+    """Decide whether marked fallback history must be built or refreshed."""
+
+    feature_query = {"sku": sku, "organizationId": organization_id}
+    feature_count = database["forecastfeatures"].count_documents(feature_query)
+    if feature_count >= HISTORY_DAYS:
+        synthetic_feature = database["forecastfeatures"].find_one(
+            {**feature_query, "isSynthetic": True},
+            {"sourceRealSalesCount": 1},
+        )
+        if not synthetic_feature:
+            return False
+        real_count = len(load_real_sales(database, sku, organization_id))
+        return real_count != (synthetic_feature.get("sourceRealSalesCount") or 0)
+    return True
 
 
 # ============================================================
@@ -367,7 +578,8 @@ def generate_forecast(
     database,
     sku,
     model,
-    feature_columns
+    feature_columns,
+    organization_id=None
 ):
     """
     Generate recursive 7-day demand forecast.
@@ -375,7 +587,8 @@ def generate_forecast(
 
     historical_features = load_latest_features(
         database,
-        sku
+        sku,
+        organization_id
     )
 
     latest_record = historical_features[-1]
@@ -568,6 +781,13 @@ def main():
 
     sku = sys.argv[1].upper()
 
+    organization_id = None
+    if "--organization-id" in sys.argv:
+        organization_index = sys.argv.index("--organization-id") + 1
+        if organization_index >= len(sys.argv):
+            raise ValueError("Organization ID is required after --organization-id")
+        organization_id = sys.argv[organization_index]
+
     # --------------------------------------------------------
     # JSON mode
     # --------------------------------------------------------
@@ -599,6 +819,37 @@ def main():
 
             database = client["test"]
 
+            history_source = "existing_forecast_features"
+            synthetic_history_count = 0
+
+            if organization_id and needs_cold_start(
+                database,
+                sku,
+                organization_id
+            ):
+                (
+                    generated_feature_count,
+                    synthetic_history_count,
+                    real_sales_count,
+                ) = build_cold_start_history(
+                    database,
+                    sku,
+                    organization_id
+                )
+
+                if generated_feature_count < HISTORY_DAYS:
+                    raise InsufficientHistoryError(
+                        sku,
+                        generated_feature_count,
+                        HISTORY_DAYS
+                    )
+
+                history_source = (
+                    "real_and_synthetic_history"
+                    if real_sales_count
+                    else "synthetic_history"
+                )
+
             # ------------------------------------------------
             # Generate forecast
             # ------------------------------------------------
@@ -607,8 +858,12 @@ def main():
                 database,
                 sku,
                 model,
-                feature_columns
+                feature_columns,
+                organization_id
             )
+
+            result["historicalDataSource"] = history_source
+            result["syntheticHistoricalRecords"] = synthetic_history_count
 
         finally:
 
@@ -712,6 +967,26 @@ def main():
             print(
                 "===============================================\n"
             )
+
+    except InsufficientHistoryError as error:
+
+        if json_mode:
+            print(
+                json.dumps({
+                    "status": "insufficient_data",
+                    "sku": error.sku,
+                    "historicalDaysUsed": error.found,
+                    "requiredHistoricalDays": error.required,
+                    "message": "More sales history is required to generate an ML forecast.",
+                })
+            )
+            return
+
+        print(
+            f"❌ {error}",
+            file=sys.stderr
+        )
+        sys.exit(1)
 
     except Exception as error:
 

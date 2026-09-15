@@ -1,4 +1,5 @@
 const express = require("express");
+const path = require("path");
 const { getAuth } = require("@clerk/express");
 const { spawn } = require("child_process");
 
@@ -18,19 +19,21 @@ const PYTHON_COMMAND = "python3";
 // RUN PYTHON FORECAST
 // ============================================================
 
-function runPythonForecast(sku) {
+function runPythonForecast(sku, organizationId) {
   return new Promise(
     (resolve, reject) => {
 
       const pythonProcess = spawn(
         PYTHON_COMMAND,
         [
-          "forecasting/predict.py",
+          path.join(__dirname, "..", "forecasting", "predict.py"),
           sku,
           "--json",
+          "--organization-id",
+          organizationId,
         ],
         {
-          cwd: process.cwd(),
+          cwd: path.join(__dirname, ".."),
         }
       );
 
@@ -110,6 +113,17 @@ function runPythonForecast(sku) {
             console.log(
               "\n========== ML FORECAST RESULT =========="
             );
+
+            if (result.status === "insufficient_data") {
+              console.log(
+                `SKU: ${result.sku}`
+              );
+              console.log(
+                "Not enough sales history to generate an ML forecast."
+              );
+              resolve(result);
+              return;
+            }
 
             console.log(
               `Product: ${result.productName}`
@@ -221,8 +235,13 @@ router.get(
 
       const forecast =
         await runPythonForecast(
-          normalizedSku
+          normalizedSku,
+          auth.orgId
         );
+
+      if (forecast.status === "insufficient_data") {
+        return res.status(200).json(forecast);
+      }
 
       return res.status(200).json({
         message:
@@ -240,6 +259,7 @@ router.get(
 
       return res.status(500).json({
         message:
+          error.message ||
           "Failed to generate ML demand forecast",
       });
 

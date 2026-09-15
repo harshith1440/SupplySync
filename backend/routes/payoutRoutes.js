@@ -113,6 +113,9 @@ router.post(
           supplierId:
             paymentTransaction.supplierId,
 
+          supplierOrganizationId:
+            paymentTransaction.supplierOrganizationId,
+
           supplierName:
             paymentTransaction.supplierName,
 

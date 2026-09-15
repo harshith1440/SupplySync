@@ -64,3 +64,48 @@ export async function getSuppliersForSku(
     getToken
   );
 }
+
+export async function getSupplierProfile(getToken) {
+  return apiRequest("/me", {}, getToken);
+}
+
+export async function updateSupplierProfile(profile, getToken) {
+  return apiRequest(
+    "/me/profile",
+    {
+      method: "PUT",
+      body: JSON.stringify(profile),
+    },
+    getToken
+  );
+}
+
+export async function createSupplierProduct(product, getToken) {
+  return apiRequest(
+    "/me/products",
+    {
+      method: "POST",
+      body: JSON.stringify(product),
+    },
+    getToken
+  );
+}
+
+export async function updateSupplierProduct(sku, product, getToken) {
+  return apiRequest(
+    `/me/products/${encodeURIComponent(sku)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(product),
+    },
+    getToken
+  );
+}
+
+export async function deactivateSupplierProduct(sku, getToken) {
+  return apiRequest(
+    `/me/products/${encodeURIComponent(sku)}`,
+    { method: "DELETE" },
+    getToken
+  );
+}

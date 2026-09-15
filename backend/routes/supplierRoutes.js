@@ -1,6 +1,6 @@
 const express = require("express");
 const mongoose = require("mongoose");
-const { getAuth } = require("@clerk/express");
+const { getAuth, clerkClient } = require("@clerk/express");
 
 const Supplier = require("../models/Supplier");
 const requireRole = require("../middleware/requireRole");
@@ -10,6 +10,126 @@ const {
 } = require("../services/supplierService");
 
 const router = express.Router();
+
+function normalizeProduct(body) {
+  return {
+    sku: String(body.sku || "").trim().toUpperCase(),
+    productName: String(body.productName || "").trim(),
+    brand: String(body.brand || "").trim() || null,
+    category: String(body.category || "").trim(),
+    unit: String(body.unit || "piece").trim(),
+    unitPrice: Number(body.unitPrice),
+    minimumOrderQuantity: Number(body.minimumOrderQuantity),
+    availableQuantity: Number(body.availableQuantity),
+    active: body.active !== false,
+    leadTimeDays: body.leadTimeDays === "" || body.leadTimeDays === undefined
+      ? null
+      : Number(body.leadTimeDays),
+    manufacturingDate: body.manufacturingDate || null,
+    expiryDate: body.expiryDate || null,
+  };
+}
+
+function validateProduct(product) {
+  return product.sku && product.productName && product.brand && product.category &&
+    product.unit && product.manufacturingDate && product.expiryDate &&
+    new Date(product.manufacturingDate) <= new Date(product.expiryDate) &&
+    Number.isFinite(product.unitPrice) && product.unitPrice >= 0 &&
+    Number.isInteger(product.minimumOrderQuantity) && product.minimumOrderQuantity >= 1 &&
+    Number.isInteger(product.availableQuantity) && product.availableQuantity >= 0 &&
+    Number.isFinite(product.leadTimeDays) && product.leadTimeDays >= 0 &&
+    typeof product.active === "boolean";
+}
+
+function normalizeSupplierProfile(body) {
+  const address = body.address || {};
+  const supplierName = String(body.supplierName || body.businessName || body.shopName || "").trim();
+  const businessName = String(body.businessName || body.shopName || supplierName || "").trim();
+  const normalizedAddress = {
+    addressLine1: String(body.addressLine1 || address.addressLine1 || address.line1 || "").trim(),
+    addressLine2: String(body.addressLine2 || address.addressLine2 || address.line2 || "").trim(),
+    city: String(body.city || address.city || "").trim(),
+    state: String(body.state || address.state || "").trim(),
+    pincode: String(body.pincode || address.pincode || address.postalCode || "").trim(),
+    country: String(body.country || address.country || "India").trim(),
+  };
+
+  return {
+    supplierName,
+    businessName,
+    leadTimeDays: body.leadTimeDays === "" || body.leadTimeDays === undefined
+      ? 0
+      : Number(body.leadTimeDays),
+    contactPerson: String(body.contactPerson || "").trim(),
+    email: String(body.email || "").trim().toLowerCase(),
+    phone: String(body.phone || "").trim(),
+    address: normalizedAddress,
+    addressLine1: normalizedAddress.addressLine1,
+    addressLine2: normalizedAddress.addressLine2,
+    city: normalizedAddress.city,
+    state: normalizedAddress.state,
+    pincode: normalizedAddress.pincode,
+    country: normalizedAddress.country,
+    description: String(body.description || "").trim() || null,
+  };
+}
+
+function validateSupplierProfile(profile) {
+  return profile.supplierName && profile.contactPerson && profile.email &&
+    profile.phone && profile.address.addressLine1 && profile.address.city &&
+    profile.address.state && profile.address.pincode && profile.address.country &&
+    Number.isFinite(profile.leadTimeDays) && profile.leadTimeDays >= 0;
+}
+
+function supplierSnapshot(supplier) {
+  const address = supplier.address || {};
+  return {
+    businessName: supplier.businessName || supplier.supplierName || null,
+    supplierName: supplier.supplierName || null,
+    contactPerson: supplier.contactPerson || null,
+    email: supplier.email || null,
+    phone: supplier.phone || null,
+    addressLine1: supplier.addressLine1 || address.addressLine1 || address.line1 || null,
+    addressLine2: supplier.addressLine2 || address.addressLine2 || address.line2 || null,
+    city: supplier.city || address.city || null,
+    state: supplier.state || address.state || null,
+    pincode: supplier.pincode || address.pincode || address.postalCode || null,
+    country: supplier.country || address.country || null,
+  };
+}
+
+function marketplaceSupplier(supplier) {
+  return {
+    _id: supplier._id,
+    supplierId: supplier._id,
+    supplierName: supplier.supplierName,
+    businessName: supplier.businessName || supplier.supplierName,
+    contactPerson: supplier.contactPerson || null,
+    phone: supplier.phone || null,
+    address: supplier.address || null,
+    addressLine1: supplier.addressLine1 || supplier.address?.addressLine1 || supplier.address?.line1 || null,
+    addressLine2: supplier.addressLine2 || supplier.address?.addressLine2 || supplier.address?.line2 || null,
+    city: supplier.city || supplier.address?.city || null,
+    state: supplier.state || supplier.address?.state || null,
+    pincode: supplier.pincode || supplier.address?.pincode || supplier.address?.postalCode || null,
+    country: supplier.country || supplier.address?.country || null,
+    leadTimeDays: supplier.leadTimeDays,
+    reliabilityScore: supplier.reliabilityScore,
+    rating: supplier.rating,
+    products: supplier.products,
+  };
+}
+
+function hasMarketplaceIdentity(supplier) {
+  const name = String(supplier.businessName || supplier.supplierName || "").trim();
+  const email = String(supplier.email || "").trim().toLowerCase();
+  return Boolean(
+    name &&
+    name.toLowerCase() !== email &&
+    supplier.contactPerson &&
+    supplier.phone
+  );
+}
 
 /*
 ========================================================
@@ -46,11 +166,53 @@ router.get(
         });
       }
 
-      const supplier = await Supplier.findOne({
+      let supplier = await Supplier.findOne({
         organizationId: auth.orgId,
         clerkUserId: auth.userId,
         active: true,
-      }).lean();
+      });
+
+      if (!supplier) {
+        let clerkUser = null;
+        try {
+          clerkUser = await clerkClient.users.getUser(auth.userId);
+        } catch (error) {
+          console.error("Fetch supplier details from Clerk error:", error);
+        }
+
+        const email = clerkUser?.primaryEmailAddress?.emailAddress?.toLowerCase() || null;
+        if (email) {
+          supplier = await Supplier.findOne({
+            organizationId: auth.orgId,
+            email,
+            clerkUserId: null,
+          });
+        }
+
+        if (supplier) {
+          supplier.clerkUserId = auth.userId;
+          await supplier.save();
+        } else {
+          supplier = await Supplier.findOneAndUpdate(
+            { organizationId: auth.orgId, clerkUserId: auth.userId },
+            {
+              $setOnInsert: {
+                organizationId: auth.orgId,
+                clerkUserId: auth.userId,
+                supplierName: clerkUser?.fullName || clerkUser?.username || email || "New Supplier",
+                contactPerson: clerkUser?.fullName || clerkUser?.username || null,
+                email,
+                products: [],
+                leadTimeDays: 0,
+                reliabilityScore: 0,
+                rating: 0,
+                active: true,
+              },
+            },
+            { new: true, upsert: true, setDefaultsOnInsert: true }
+          );
+        }
+      }
 
       if (!supplier) {
         return res.status(404).json({
@@ -61,7 +223,7 @@ router.get(
 
       return res.status(200).json({
         message: "Supplier profile fetched successfully",
-        supplier,
+        supplier: supplier.toObject ? supplier.toObject() : supplier,
       });
     } catch (error) {
       console.error(
@@ -95,6 +257,120 @@ Admin provides:
 This connects one Clerk supplier account
 to one supplier record.
 */
+
+router.get(
+  "/me/products",
+  requireRole("org:supplier"),
+  async (req, res) => {
+    try {
+      const auth = getAuth(req);
+      const supplier = await Supplier.findOne({
+        organizationId: auth.orgId,
+        clerkUserId: auth.userId,
+        active: true,
+      }).lean();
+      if (!supplier) return res.status(404).json({ message: "Supplier profile not found" });
+      return res.json({ products: supplier.products || [] });
+    } catch (error) {
+      console.error("Fetch supplier products error:", error);
+      return res.status(500).json({ message: "Failed to fetch supplier products" });
+    }
+  }
+);
+
+router.put(
+  "/me/profile",
+  requireRole("org:supplier"),
+  async (req, res) => {
+    try {
+      const auth = getAuth(req);
+      const profile = normalizeSupplierProfile(req.body);
+      if (!validateSupplierProfile(profile)) {
+        return res.status(400).json({ message: "Complete supplier profile details are required" });
+      }
+      const supplier = await Supplier.findOneAndUpdate(
+        { organizationId: auth.orgId, clerkUserId: auth.userId, active: true },
+        { $set: profile },
+        { new: true, runValidators: true }
+      ).lean();
+      if (!supplier) return res.status(404).json({ message: "Supplier profile not found" });
+      return res.json({ message: "Supplier profile saved successfully", supplier });
+    } catch (error) {
+      console.error("Save supplier profile error:", error);
+      return res.status(500).json({ message: "Failed to save supplier profile" });
+    }
+  }
+);
+
+router.post(
+  "/me/products",
+  requireRole("org:supplier"),
+  async (req, res) => {
+    try {
+      const auth = getAuth(req);
+      const product = normalizeProduct(req.body);
+      if (!validateProduct(product)) return res.status(400).json({ message: "Product name, SKU, brand, category, unit, price, MOQ, stock, lead time, and valid manufacturing/expiry dates are required" });
+      const supplier = await Supplier.findOne({ organizationId: auth.orgId, clerkUserId: auth.userId, active: true });
+      if (!supplier) return res.status(404).json({ message: "Supplier profile not found" });
+      if (supplier.products.some((item) => item.sku === product.sku)) return res.status(409).json({ message: "SKU already exists in supplier catalog" });
+      product.supplierId = supplier._id;
+      product.organizationId = auth.orgId;
+      supplier.products.push(product);
+      await supplier.save();
+      return res.status(201).json({ message: "Supplier product added successfully", product: supplier.products[supplier.products.length - 1] });
+    } catch (error) {
+      console.error("Add supplier product error:", error);
+      return res.status(500).json({ message: "Failed to add supplier product" });
+    }
+  }
+);
+
+router.patch(
+  "/me/products/:sku",
+  requireRole("org:supplier"),
+  async (req, res) => {
+    try {
+      const auth = getAuth(req);
+      const supplier = await Supplier.findOne({ organizationId: auth.orgId, clerkUserId: auth.userId, active: true });
+      if (!supplier) return res.status(404).json({ message: "Supplier profile not found" });
+      const currentSku = req.params.sku.trim().toUpperCase();
+      const index = supplier.products.findIndex((item) => item.sku === currentSku);
+      if (index < 0) return res.status(404).json({ message: "Supplier product not found" });
+      const product = normalizeProduct({ ...supplier.products[index].toObject(), ...req.body });
+      if (!validateProduct(product)) return res.status(400).json({ message: "Product name, SKU, brand, category, unit, price, MOQ, stock, lead time, and valid manufacturing/expiry dates are required" });
+      if (product.sku !== currentSku && supplier.products.some((item) => item.sku === product.sku)) return res.status(409).json({ message: "SKU already exists in supplier catalog" });
+      product.supplierId = supplier._id;
+      product.organizationId = auth.orgId;
+      supplier.products[index] = product;
+      await supplier.save();
+      return res.json({ message: "Supplier product updated successfully", product: supplier.products[index] });
+    } catch (error) {
+      console.error("Update supplier product error:", error);
+      return res.status(500).json({ message: "Failed to update supplier product" });
+    }
+  }
+);
+
+router.delete(
+  "/me/products/:sku",
+  requireRole("org:supplier"),
+  async (req, res) => {
+    try {
+      const auth = getAuth(req);
+      const supplier = await Supplier.findOne({ organizationId: auth.orgId, clerkUserId: auth.userId, active: true });
+      if (!supplier) return res.status(404).json({ message: "Supplier profile not found" });
+      const product = supplier.products.find((item) => item.sku === req.params.sku.trim().toUpperCase());
+      if (!product) return res.status(404).json({ message: "Supplier product not found" });
+      product.active = false;
+      product.availableQuantity = 0;
+      await supplier.save();
+      return res.json({ message: "Supplier product deactivated successfully", product });
+    } catch (error) {
+      console.error("Deactivate supplier product error:", error);
+      return res.status(500).json({ message: "Failed to deactivate supplier product" });
+    }
+  }
+);
 
 router.post(
   "/admin/map-user",
@@ -239,21 +515,35 @@ router.get(
       }
 
       const suppliers = await Supplier.find({
-        organizationId: auth.orgId,
         active: true,
+        products: {
+          $elemMatch: {
+            active: { $ne: false },
+            availableQuantity: { $gt: 0 },
+          },
+        },
       })
         .sort({
           supplierName: 1,
         })
         .lean();
 
+      const visibleSuppliers = suppliers
+        .filter(hasMarketplaceIdentity)
+        .map((supplier) => ({
+        ...marketplaceSupplier(supplier),
+        products: (supplier.products || []).filter(
+          (product) => product.active !== false && product.availableQuantity > 0
+        ),
+        }));
+
       return res.status(200).json({
         message:
           "Suppliers fetched successfully",
 
-        count: suppliers.length,
+        count: visibleSuppliers.length,
 
-        suppliers,
+        suppliers: visibleSuppliers,
       });
     } catch (error) {
       console.error(
@@ -312,7 +602,8 @@ router.get(
       const recommendation =
         await getForecastBasedSupplierRecommendation(
           auth.orgId,
-          normalizedSku
+          normalizedSku,
+          auth.userId
         );
 
       return res.status(200).json({
@@ -366,17 +657,26 @@ router.get(
 
       const suppliers =
         await Supplier.find({
-          organizationId: auth.orgId,
           active: true,
+          products: {
+            $elemMatch: {
+              sku: normalizedSku,
+              active: { $ne: false },
+              availableQuantity: { $gt: 0 },
+            },
+          },
         }).lean();
 
       const matchingSuppliers = [];
 
       for (const supplier of suppliers) {
+        if (!hasMarketplaceIdentity(supplier)) continue;
         const product =
           supplier.products.find(
             (item) =>
-              item.sku === normalizedSku
+              item.sku === normalizedSku &&
+              item.active !== false &&
+              item.availableQuantity > 0
           );
 
         if (product) {
@@ -387,6 +687,9 @@ router.get(
             supplierName:
               supplier.supplierName,
 
+            businessName:
+              supplier.businessName || supplier.supplierName,
+
             contactPerson:
               supplier.contactPerson,
 
@@ -395,6 +698,27 @@ router.get(
 
             phone:
               supplier.phone,
+
+            address:
+              supplier.address,
+
+            addressLine1:
+              supplier.addressLine1 || supplier.address?.addressLine1 || supplier.address?.line1 || null,
+
+            addressLine2:
+              supplier.addressLine2 || supplier.address?.addressLine2 || supplier.address?.line2 || null,
+
+            city:
+              supplier.city || supplier.address?.city || null,
+
+            state:
+              supplier.state || supplier.address?.state || null,
+
+            pincode:
+              supplier.pincode || supplier.address?.pincode || supplier.address?.postalCode || null,
+
+            country:
+              supplier.country || supplier.address?.country || null,
 
             leadTimeDays:
               supplier.leadTimeDays,

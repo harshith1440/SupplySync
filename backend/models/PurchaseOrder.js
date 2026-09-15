@@ -5,7 +5,7 @@ const purchaseOrderItemSchema = new mongoose.Schema(
     inventoryId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Inventory",
-      required: true,
+      default: null,
     },
 
     sku: {
@@ -14,11 +14,22 @@ const purchaseOrderItemSchema = new mongoose.Schema(
       trim: true,
       uppercase: true,
     },
-
     productName: {
       type: String,
       required: true,
       trim: true,
+    },
+
+    category: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+
+    brand: {
+      type: String,
+      trim: true,
+      default: null,
     },
 
     unit: {
@@ -26,6 +37,15 @@ const purchaseOrderItemSchema = new mongoose.Schema(
       trim: true,
       default: "piece",
     },
+
+    leadTimeDays: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
+
+    manufacturingDate: { type: Date, default: null },
+    expiryDate: { type: Date, default: null },
 
     quantity: {
       type: Number,
@@ -101,6 +121,22 @@ const purchaseOrderSchema = new mongoose.Schema(
       default: null,
     },
 
+    retailerPhone: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+
+    retailerAddress: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+
+    deliveryAddress: {
+      type: mongoose.Schema.Types.Mixed,
+      required: true,
+    },
+
     /*
     ------------------------------------------------------
     SUPPLIER DETAILS
@@ -111,6 +147,17 @@ const purchaseOrderSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Supplier",
       required: true,
+    },
+
+    supplierOrganizationId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+
+    supplierSnapshot: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
     },
 
     supplierName: {
@@ -189,6 +236,12 @@ const purchaseOrderSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
+
+    inventoryUpdatedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
   },
   {
     timestamps: true,
@@ -203,6 +256,12 @@ INDEXES
 
 purchaseOrderSchema.index({
   organizationId: 1,
+  supplierId: 1,
+  createdAt: -1,
+});
+
+purchaseOrderSchema.index({
+  supplierOrganizationId: 1,
   supplierId: 1,
   createdAt: -1,
 });

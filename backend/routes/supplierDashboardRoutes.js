@@ -8,6 +8,7 @@ const Supplier = require("../models/Supplier");
 const PurchaseOrder = require("../models/PurchaseOrder");
 const PaymentTransaction = require("../models/PaymentTransaction");
 const SupplierPayout = require("../models/SupplierPayout");
+const SupplierFeedback = require("../models/SupplierFeedback");
 const requireRole = require("../middleware/requireRole");
 
 const router = express.Router();
@@ -88,6 +89,26 @@ router.get(
 
       const supplierId = supplier._id;
 
+      const supplierOrders = await PurchaseOrder.find({
+        supplierOrganizationId: organizationId,
+        supplierId,
+        orderStatus: { $ne: "cancelled" },
+      }).select("paymentStatus orderStatus inventoryUpdatedAt").lean();
+
+      const metricPaidOrders = supplierOrders.filter((order) => order.paymentStatus === "paid");
+      const completedOrders = metricPaidOrders.filter((order) =>
+        order.inventoryUpdatedAt || ["confirmed", "shipped", "delivered"].includes(order.orderStatus)
+      );
+      const reliabilityScore = metricPaidOrders.length
+        ? Number(((completedOrders.length / metricPaidOrders.length) * 100).toFixed(2))
+        : 0;
+
+      const ratingAggregate = await SupplierFeedback.aggregate([
+        { $match: { supplierId } },
+        { $group: { _id: "$supplierId", averageRating: { $avg: "$rating" }, count: { $sum: 1 } } },
+      ]);
+      const qualityRating = Number((ratingAggregate[0]?.averageRating || 0).toFixed(2));
+
       /*
       --------------------------------------------------
       SYNC PAID ORDERS
@@ -104,7 +125,7 @@ router.get(
 
       await PurchaseOrder.updateMany(
         {
-          organizationId,
+          supplierOrganizationId: organizationId,
           supplierId,
           paymentStatus: "paid",
           orderStatus: {
@@ -130,7 +151,7 @@ router.get(
         payouts,
       ] = await Promise.all([
         PurchaseOrder.find({
-          organizationId,
+          supplierOrganizationId: organizationId,
           supplierId,
         })
           .sort({
@@ -139,7 +160,7 @@ router.get(
           .lean(),
 
         PaymentTransaction.find({
-          organizationId,
+          supplierOrganizationId: organizationId,
           supplierId,
         })
           .sort({
@@ -148,7 +169,7 @@ router.get(
           .lean(),
 
         SupplierPayout.find({
-          organizationId,
+          supplierOrganizationId: organizationId,
           supplierId,
         })
           .sort({
@@ -296,6 +317,10 @@ router.get(
               order.retailerEmail ||
               clerkRetailer?.email ||
               null,
+
+            retailerPhone: order.retailerPhone || null,
+            retailerAddress: order.retailerAddress || null,
+            deliveryAddress: order.deliveryAddress || order.retailerAddress || null,
           };
         });
 
@@ -405,6 +430,9 @@ router.get(
           supplierName:
             supplier.supplierName,
 
+            businessName:
+              supplier.businessName || supplier.supplierName,
+
           contactPerson:
             supplier.contactPerson,
 
@@ -414,6 +442,17 @@ router.get(
           phone:
             supplier.phone,
 
+          address:
+            supplier.address,
+
+          addressLine1: supplier.addressLine1 || supplier.address?.addressLine1 || supplier.address?.line1 || null,
+          addressLine2: supplier.addressLine2 || supplier.address?.addressLine2 || supplier.address?.line2 || null,
+          city: supplier.city || supplier.address?.city || null,
+          state: supplier.state || supplier.address?.state || null,
+          pincode: supplier.pincode || supplier.address?.pincode || supplier.address?.postalCode || null,
+          country: supplier.country || supplier.address?.country || null,
+          description: supplier.description || null,
+
           products:
             supplier.products || [],
 
@@ -421,10 +460,13 @@ router.get(
             supplier.leadTimeDays,
 
           reliabilityScore:
-            supplier.reliabilityScore,
+            reliabilityScore,
 
           rating:
-            supplier.rating,
+            qualityRating,
+
+          ratingCount:
+            ratingAggregate[0]?.count || 0,
 
           active:
             supplier.active,

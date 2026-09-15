@@ -1,11 +1,255 @@
 const express = require("express");
 const { getAuth, clerkClient } = require("@clerk/express");
+const RetailerProfile = require("../models/RetailerProfile");
+const Supplier = require("../models/Supplier");
 
 const router = express.Router();
+
+function getMembershipOrganizationId(membership) {
+  return membership.organization?.id || membership.organizationId || null;
+}
+
+async function resolveOrganization(auth, clerkUser) {
+  if (auth.orgId) {
+    const memberships = await clerkClient.users.getOrganizationMembershipList({
+      userId: auth.userId,
+    });
+    const activeMembership = memberships.data?.find(
+      (membership) => getMembershipOrganizationId(membership) === auth.orgId
+    );
+
+    return {
+      organizationId: auth.orgId,
+      membership: activeMembership || null,
+      created: false,
+    };
+  }
+
+  const memberships = await clerkClient.users.getOrganizationMembershipList({
+    userId: auth.userId,
+  });
+  const configuredOrganizationId =
+    process.env.CLERK_ORGANIZATION_ID?.trim() || null;
+
+  let supplySyncOrganizationId = configuredOrganizationId;
+
+  if (!supplySyncOrganizationId) {
+    const organizations = await clerkClient.organizations.getOrganizationList({
+      query: "SupplySync AI",
+      limit: 100,
+    });
+    const existingSupplySyncOrganization = organizations.data?.find(
+      (organization) => organization.name === "SupplySync AI"
+    );
+    supplySyncOrganizationId = existingSupplySyncOrganization?.id || null;
+  }
+
+  if (supplySyncOrganizationId) {
+    try {
+      await clerkClient.organizations.getOrganization({
+        organizationId: supplySyncOrganizationId,
+      });
+    } catch (error) {
+      throw new Error(
+        `SupplySync organization ${supplySyncOrganizationId} could not be loaded: ${error.message}`
+      );
+    }
+
+    const configuredMembership = memberships.data?.find(
+      (membership) =>
+        getMembershipOrganizationId(membership) === supplySyncOrganizationId
+    );
+
+    return {
+      organizationId: supplySyncOrganizationId,
+      membership: configuredMembership || null,
+      created: false,
+    };
+  }
+
+  const existingMembership = memberships.data?.[0];
+
+  if (existingMembership) {
+    return {
+      organizationId: getMembershipOrganizationId(existingMembership),
+      membership: existingMembership,
+      created: false,
+    };
+  }
+
+  const organization = await clerkClient.organizations.createOrganization({
+    name: "SupplySync AI",
+    createdBy: auth.userId,
+  });
+
+  return {
+    organizationId: organization.id,
+    membership: null,
+    created: true,
+  };
+}
+
+async function assignRole(organizationId, userId, requestedRole, membership, organizationCreated) {
+  if (membership && !organizationCreated) {
+    return membership.role;
+  }
+
+  const assignedMembership = membership || organizationCreated
+    ? await clerkClient.organizations.updateOrganizationMembership({
+        organizationId,
+        userId,
+        role: requestedRole,
+      })
+    : await clerkClient.organizations.createOrganizationMembership({
+        organizationId,
+        userId,
+        role: requestedRole,
+      });
+
+  return assignedMembership.role;
+}
+
+async function createOrUpdateRoleProfile({ organizationId, userId, role, clerkUser }) {
+  const email = clerkUser.primaryEmailAddress?.emailAddress || null;
+  const name = clerkUser.fullName || clerkUser.username || email || null;
+
+  if (role === "org:retailer") {
+    return RetailerProfile.findOneAndUpdate(
+      { organizationId, clerkUserId: userId },
+      {
+        $setOnInsert: {
+          organizationId,
+          clerkUserId: userId,
+          name,
+          businessName: name,
+          contactPerson: name,
+          email,
+        },
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+  }
+
+  if (role === "org:supplier") {
+    return Supplier.findOneAndUpdate(
+      { organizationId, clerkUserId: userId },
+      {
+        $setOnInsert: {
+          organizationId,
+          clerkUserId: userId,
+          supplierName: name || "New Supplier",
+          contactPerson: name,
+          email,
+          products: [],
+          leadTimeDays: 0,
+          reliabilityScore: 0,
+          rating: 0,
+          active: true,
+        },
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+  }
+
+  return null;
+}
+
+function getRoleProfilePayload(body, role, clerkUser) {
+  const profile = body.profile || {};
+  const email = String(profile.email || clerkUser.primaryEmailAddress?.emailAddress || "").trim().toLowerCase();
+  const name = String(profile.name || profile.businessName || clerkUser.fullName || clerkUser.username || "").trim();
+  const contactPerson = String(profile.contactPerson || name).trim();
+  const address = profile.address || {};
+
+  return {
+    email,
+    supplier: role === "supplier" ? {
+      supplierName: String(profile.supplierName || name).trim(),
+      businessName: String(profile.businessName || profile.supplierName || name).trim(),
+      contactPerson,
+      email,
+      phone: String(profile.phone || "").trim(),
+      address,
+      addressLine1: address.addressLine1 || address.line1 || null,
+      addressLine2: address.addressLine2 || address.line2 || null,
+      city: address.city || null,
+      state: address.state || null,
+      pincode: address.pincode || address.postalCode || null,
+      country: address.country || "India",
+    } : null,
+    retailer: role === "retailer" ? {
+      name,
+      businessName: String(profile.businessName || name).trim(),
+      contactPerson,
+      email,
+      phone: String(profile.phone || "").trim(),
+      address,
+    } : null,
+  };
+}
+
+router.get("/profile", async (req, res) => {
+  try {
+    const auth = getAuth(req);
+    if (!auth.isAuthenticated || !auth.userId) return res.status(401).json({ message: "Authentication required" });
+    if (!auth.orgId) return res.status(400).json({ message: "Organization not found" });
+    const profile = await RetailerProfile.findOne({ organizationId: auth.orgId, clerkUserId: auth.userId }).lean();
+    return res.json({ profile: profile || null });
+  } catch (error) {
+    console.error("Fetch retailer profile error:", error);
+    return res.status(500).json({ message: "Failed to fetch retailer profile" });
+  }
+});
+
+router.put("/profile", async (req, res) => {
+  try {
+    const auth = getAuth(req);
+    if (!auth.isAuthenticated || !auth.userId) return res.status(401).json({ message: "Authentication required" });
+    if (!auth.orgId) return res.status(400).json({ message: "Organization not found" });
+    const { name, email, phone, address, deliveryAddress } = req.body;
+    const sourceAddress = deliveryAddress || address || {};
+    const normalizedAddress = {
+      businessName: sourceAddress.businessName || req.body.businessName || name || null,
+      contactPerson: sourceAddress.contactPerson || req.body.contactPerson || name || null,
+      phone: sourceAddress.phone || phone || null,
+      addressLine1: sourceAddress.addressLine1 || sourceAddress.line1 || req.body.addressLine1 || null,
+      addressLine2: sourceAddress.addressLine2 || sourceAddress.line2 || req.body.addressLine2 || null,
+      city: sourceAddress.city || null,
+      state: sourceAddress.state || null,
+      pincode: sourceAddress.pincode || sourceAddress.postalCode || req.body.pincode || null,
+      country: sourceAddress.country || "India",
+    };
+    const profile = await RetailerProfile.findOneAndUpdate(
+      { organizationId: auth.orgId, clerkUserId: auth.userId },
+      {
+        $set: {
+          name,
+          email,
+          phone,
+          businessName: req.body.businessName || normalizedAddress.businessName,
+          contactPerson: req.body.contactPerson || normalizedAddress.contactPerson,
+          address: normalizedAddress,
+        },
+      },
+      { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
+    );
+    return res.json({ message: "Retailer profile saved successfully", profile });
+  } catch (error) {
+    console.error("Save retailer profile error:", error);
+    return res.status(500).json({ message: "Failed to save retailer profile" });
+  }
+});
 
 router.post("/role", async (req, res) => {
   try {
     const auth = getAuth(req);
+
+    console.log("Role onboarding request", {
+      userId: auth.userId || null,
+      organizationId: auth.orgId || null,
+      role: req.body?.role || null,
+      authenticated: Boolean(auth.isAuthenticated),
+    });
 
     if (!auth.isAuthenticated || !auth.userId) {
       return res.status(401).json({
@@ -26,34 +270,64 @@ router.post("/role", async (req, res) => {
       });
     }
 
-    const organizationId = process.env.CLERK_ORGANIZATION_ID;
+    const clerkRole = roleMap[role];
+    const clerkUser = await clerkClient.users.getUser(auth.userId);
+    const resolvedOrganization = await resolveOrganization(auth, clerkUser);
 
-    if (!organizationId) {
+    if (!resolvedOrganization.organizationId) {
       return res.status(500).json({
-        message: "CLERK_ORGANIZATION_ID is missing",
+        message: "Unable to resolve organization",
       });
     }
 
-    const clerkRole = roleMap[role];
+    const assignedRole = await assignRole(
+      resolvedOrganization.organizationId,
+      auth.userId,
+      clerkRole,
+      resolvedOrganization.membership,
+      resolvedOrganization.created
+    );
 
-    const membership =
-      await clerkClient.organizations.createOrganizationMembership({
-        organizationId,
-        userId: auth.userId,
-        role: clerkRole,
-      });
+    const roleProfile = await createOrUpdateRoleProfile({
+      organizationId: resolvedOrganization.organizationId,
+      userId: auth.userId,
+      role: assignedRole,
+      clerkUser,
+    });
+
+    const profilePayload = getRoleProfilePayload(req.body, role, clerkUser);
+    if (role === "supplier" && profilePayload.supplier && Object.keys(profilePayload.supplier).length > 0) {
+      await Supplier.findOneAndUpdate(
+        { organizationId: resolvedOrganization.organizationId, clerkUserId: auth.userId },
+        { $set: profilePayload.supplier },
+        { new: true, runValidators: true }
+      );
+    }
+    if (role === "retailer" && profilePayload.retailer) {
+      await RetailerProfile.findOneAndUpdate(
+        { organizationId: resolvedOrganization.organizationId, clerkUserId: auth.userId },
+        { $set: profilePayload.retailer },
+        { new: true, runValidators: true }
+      );
+    }
 
     return res.status(200).json({
       message: "Role assigned successfully",
-      role: membership.role,
-      organizationId,
+      role: assignedRole,
+      organizationId: resolvedOrganization.organizationId,
     });
   } catch (error) {
-    console.error("Role assignment error:", error);
+    console.error("Role assignment error:", {
+      message: error.message,
+      status: error.status || error.statusCode || 500,
+      code: error.code || null,
+      cause: error.errors || null,
+    });
 
     return res.status(500).json({
       message: "Failed to assign role",
       error: error.message,
+      code: error.code || null,
     });
   }
 });

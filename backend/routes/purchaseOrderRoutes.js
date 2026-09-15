@@ -6,11 +6,29 @@ const {
 
 const PurchaseOrder = require("../models/PurchaseOrder");
 const Supplier = require("../models/Supplier");
-const Inventory = require("../models/Inventory");
+const RetailerProfile = require("../models/RetailerProfile");
+const SupplierFeedback = require("../models/SupplierFeedback");
 
 const requireRole = require("../middleware/requireRole");
 
 const router = express.Router();
+
+function buildSupplierSnapshot(supplier) {
+  const address = supplier.address || {};
+  return {
+    businessName: supplier.businessName || supplier.supplierName || null,
+    supplierName: supplier.supplierName || null,
+    contactPerson: supplier.contactPerson || null,
+    email: supplier.email || null,
+    phone: supplier.phone || null,
+    addressLine1: supplier.addressLine1 || address.addressLine1 || address.line1 || null,
+    addressLine2: supplier.addressLine2 || address.addressLine2 || address.line2 || null,
+    city: supplier.city || address.city || null,
+    state: supplier.state || address.state || null,
+    pincode: supplier.pincode || address.pincode || address.postalCode || null,
+    country: supplier.country || address.country || null,
+  };
+}
 
 /*
 ========================================================
@@ -77,6 +95,44 @@ router.post(
 
       let retailerName = null;
       let retailerEmail = null;
+      let retailerPhone = null;
+      let retailerAddress = null;
+
+      const retailerProfile = await RetailerProfile.findOne({
+        organizationId: auth.orgId,
+        clerkUserId: auth.userId,
+      }).lean();
+
+      retailerName = retailerProfile?.businessName || retailerProfile?.name || null;
+      retailerEmail = retailerProfile?.email || null;
+      retailerPhone = retailerProfile?.phone || null;
+      retailerAddress = retailerProfile?.address || null;
+
+      const deliveryAddress = {
+        businessName: retailerProfile?.businessName || retailerProfile?.address?.businessName || retailerProfile?.name || null,
+        contactPerson: retailerProfile?.contactPerson || retailerProfile?.address?.contactPerson || retailerProfile?.name || null,
+        phone: retailerProfile?.phone || retailerProfile?.address?.phone || null,
+        addressLine1: retailerProfile?.address?.addressLine1 || retailerProfile?.address?.line1 || null,
+        addressLine2: retailerProfile?.address?.addressLine2 || retailerProfile?.address?.line2 || null,
+        city: retailerProfile?.address?.city || null,
+        state: retailerProfile?.address?.state || null,
+        pincode: retailerProfile?.address?.pincode || retailerProfile?.address?.postalCode || null,
+        country: retailerProfile?.address?.country || "India",
+      };
+
+      const requiredAddressFields = [
+        "businessName",
+        "contactPerson",
+        "phone",
+        "addressLine1",
+        "city",
+        "state",
+        "pincode",
+        "country",
+      ];
+      if (requiredAddressFields.some((field) => !deliveryAddress[field])) {
+        return res.status(400).json({ message: "A complete saved delivery address is required before creating a purchase order" });
+      }
 
       try {
         const retailer =
@@ -84,14 +140,8 @@ router.post(
             auth.userId
           );
 
-        retailerName =
-          retailer.fullName ||
-          retailer.username ||
-          null;
-
-        retailerEmail =
-          retailer.primaryEmailAddress
-            ?.emailAddress || null;
+        retailerName = retailerName || retailer.fullName || retailer.username || null;
+        retailerEmail = retailerEmail || retailer.primaryEmailAddress?.emailAddress || null;
       } catch (clerkError) {
         console.error(
           "Fetch retailer details from Clerk error:",
@@ -113,8 +163,13 @@ router.post(
 
       const supplier = await Supplier.findOne({
         _id: supplierId,
-        organizationId: auth.orgId,
         active: true,
+        products: {
+          $elemMatch: {
+            active: { $ne: false },
+            availableQuantity: { $gt: 0 },
+          },
+        },
       }).lean();
 
       if (!supplier) {
@@ -186,7 +241,8 @@ router.post(
         const supplierProduct =
           supplier.products.find(
             (product) =>
-              product.sku === requestedItem.sku
+              product.sku === requestedItem.sku &&
+              product.active !== false
           );
 
         if (!supplierProduct) {
@@ -225,23 +281,6 @@ router.post(
         }
 
         /*
-        Find retailer inventory
-        */
-
-        const inventory =
-          await Inventory.findOne({
-            organizationId: auth.orgId,
-            sku: requestedItem.sku,
-          }).lean();
-
-        if (!inventory) {
-          return res.status(404).json({
-            message:
-              `Inventory not found for SKU ${requestedItem.sku}`,
-          });
-        }
-
-        /*
         Calculate item total on backend
         */
 
@@ -250,14 +289,26 @@ router.post(
           supplierProduct.unitPrice;
 
         purchaseOrderItems.push({
-          inventoryId: inventory._id,
+          inventoryId: null,
 
           sku: supplierProduct.sku,
 
           productName:
             supplierProduct.productName,
 
-          unit: inventory.unit,
+          category:
+            supplierProduct.category,
+
+          brand:
+            supplierProduct.brand || null,
+
+          unit: supplierProduct.unit || "piece",
+
+          leadTimeDays:
+            supplierProduct.leadTimeDays ?? supplier.leadTimeDays ?? null,
+
+          manufacturingDate: supplierProduct.manufacturingDate,
+          expiryDate: supplierProduct.expiryDate,
 
           quantity:
             requestedItem.quantity,
@@ -301,10 +352,20 @@ router.post(
 
           retailerEmail,
 
+          retailerPhone,
+
+          retailerAddress,
+
+          deliveryAddress,
+
           supplierId: supplier._id,
 
+          supplierOrganizationId: supplier.organizationId,
+
+          supplierSnapshot: buildSupplierSnapshot(supplier),
+
           supplierName:
-            supplier.supplierName,
+            supplier.businessName || supplier.supplierName,
 
           items: purchaseOrderItems,
 
@@ -361,6 +422,7 @@ router.get(
       const purchaseOrders =
         await PurchaseOrder.find({
           organizationId: auth.orgId,
+          retailerUserId: auth.userId,
         })
           .populate(
             "supplierId",
@@ -393,6 +455,91 @@ router.get(
   }
 );
 
+router.patch(
+  "/:id/delivered",
+  requireRole("org:retailer"),
+  async (req, res) => {
+    try {
+      const auth = getAuth(req);
+      const purchaseOrder = await PurchaseOrder.findOneAndUpdate(
+        {
+          _id: req.params.id,
+          organizationId: auth.orgId,
+          retailerUserId: auth.userId,
+          paymentStatus: "paid",
+          orderStatus: { $in: ["confirmed", "shipped"] },
+        },
+        { $set: { orderStatus: "delivered" } },
+        { new: true }
+      );
+
+      if (!purchaseOrder) {
+        return res.status(404).json({
+          message: "Paid purchase order is not ready to mark as delivered",
+        });
+      }
+
+      return res.status(200).json({ purchaseOrder });
+    } catch (error) {
+      console.error("Mark purchase order delivered error:", error);
+      return res.status(500).json({ message: "Failed to mark order as delivered" });
+    }
+  }
+);
+
+router.post(
+  "/:id/feedback",
+  requireRole("org:retailer"),
+  async (req, res) => {
+    try {
+      const auth = getAuth(req);
+      const rating = Number(req.body.rating);
+
+      if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+        return res.status(400).json({ message: "Rating must be an integer from 1 to 5" });
+      }
+
+      const purchaseOrder = await PurchaseOrder.findOne({
+        _id: req.params.id,
+        organizationId: auth.orgId,
+        retailerUserId: auth.userId,
+        supplierId: { $ne: null },
+        orderStatus: "delivered",
+      });
+
+      if (!purchaseOrder) {
+        return res.status(404).json({ message: "Delivered purchase order not found" });
+      }
+
+      const feedback = await SupplierFeedback.create({
+        organizationId: auth.orgId,
+        supplierId: purchaseOrder.supplierId,
+        purchaseOrderId: purchaseOrder._id,
+        retailerUserId: auth.userId,
+        rating,
+        comment: req.body.comment || null,
+      });
+
+      const aggregate = await SupplierFeedback.aggregate([
+        { $match: { supplierId: purchaseOrder.supplierId } },
+        { $group: { _id: "$supplierId", averageRating: { $avg: "$rating" } } },
+      ]);
+
+      await Supplier.findByIdAndUpdate(purchaseOrder.supplierId, {
+        $set: { rating: Number((aggregate[0]?.averageRating || 0).toFixed(2)) },
+      });
+
+      return res.status(201).json({ feedback });
+    } catch (error) {
+      if (error.code === 11000) {
+        return res.status(409).json({ message: "Feedback was already submitted for this order" });
+      }
+      console.error("Submit supplier feedback error:", error);
+      return res.status(500).json({ message: "Failed to submit supplier feedback" });
+    }
+  }
+);
+
 /*
 ========================================================
 GET SINGLE PURCHASE ORDER
@@ -418,6 +565,7 @@ router.get(
         await PurchaseOrder.findOne({
           _id: req.params.id,
           organizationId: auth.orgId,
+          retailerUserId: auth.userId,
         })
           .populate(
             "supplierId",

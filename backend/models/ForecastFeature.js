@@ -148,6 +148,24 @@ const forecastFeatureSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+
+    isSynthetic: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    syntheticSource: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+
+    sourceRealSalesCount: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
   },
   {
     timestamps: true,

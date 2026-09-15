@@ -157,8 +157,14 @@ async function getSupplierRecommendation(
 
   const suppliers =
     await Supplier.find({
-      organizationId,
       active: true,
+      products: {
+        $elemMatch: {
+          sku: normalizedSku,
+          active: { $ne: false },
+          availableQuantity: { $gt: 0 },
+        },
+      },
     }).lean();
 
   const supplierProducts = [];
@@ -167,7 +173,9 @@ async function getSupplierRecommendation(
     const product =
       supplier.products.find(
         (item) =>
-          item.sku === normalizedSku
+          item.sku === normalizedSku &&
+          item.active !== false &&
+          item.availableQuantity > 0
       );
 
     if (product) {
@@ -213,8 +221,14 @@ async function getSuppliersForSku(
 
   const suppliers =
     await Supplier.find({
-      organizationId,
       active: true,
+      products: {
+        $elemMatch: {
+          sku: normalizedSku,
+          active: { $ne: false },
+          availableQuantity: { $gt: 0 },
+        },
+      },
     }).lean();
 
   const matchingSuppliers = [];
@@ -223,7 +237,9 @@ async function getSuppliersForSku(
     const product =
       supplier.products.find(
         (item) =>
-          item.sku === normalizedSku
+          item.sku === normalizedSku &&
+          item.active !== false &&
+          item.availableQuantity > 0
       );
 
     if (product) {
@@ -262,7 +278,8 @@ async function getSuppliersForSku(
 
 async function getForecastBasedSupplierRecommendation(
   organizationId,
-  sku
+  sku,
+  retailerUserId = null
 ) {
   if (!organizationId) {
     throw new Error(
@@ -283,11 +300,17 @@ async function getForecastBasedSupplierRecommendation(
     1. Get current inventory
   */
 
+  const inventoryQuery = {
+    organizationId,
+    sku: normalizedSku,
+  };
+
+  if (retailerUserId) {
+    inventoryQuery.retailerUserId = retailerUserId;
+  }
+
   const inventory =
-    await Inventory.findOne({
-      organizationId,
-      sku: normalizedSku,
-    }).lean();
+    await Inventory.findOne(inventoryQuery).lean();
 
   if (!inventory) {
     throw new Error(

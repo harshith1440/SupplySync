@@ -42,6 +42,15 @@ router.get(
         });
       }
 
+      await PurchaseOrder.updateMany(
+        {
+          organizationId,
+          paymentStatus: "paid",
+          orderStatus: { $in: ["draft", "pending"] },
+        },
+        { $set: { orderStatus: "confirmed" } }
+      );
+
       /*
       --------------------------------------------------
       FETCH PAYMENT TRANSACTIONS
@@ -83,7 +92,7 @@ router.get(
           organizationId,
         })
           .select(
-            "_id poNumber retailerUserId retailerName retailerEmail supplierId supplierName totalAmount orderStatus paymentStatus createdAt"
+            "_id poNumber retailerUserId retailerName retailerEmail retailerPhone retailerAddress deliveryAddress supplierId supplierOrganizationId supplierName totalAmount orderStatus paymentStatus createdAt"
           )
           .lean();
 
@@ -246,8 +255,17 @@ router.get(
               retailer?.email ||
               null,
 
+            retailerPhone: purchaseOrder?.retailerPhone || null,
+            retailerAddress: purchaseOrder?.retailerAddress || null,
+            deliveryAddress: purchaseOrder?.deliveryAddress || purchaseOrder?.retailerAddress || null,
+
             supplierId:
               payment.supplierId,
+
+            supplierOrganizationId:
+              payment.supplierOrganizationId ||
+              purchaseOrder?.supplierOrganizationId ||
+              null,
 
             supplierName:
               payment.supplierName ||

@@ -292,6 +292,12 @@ async function generateForecastFeatures() {
                 previous7Days
               )
             ),
+
+          isSynthetic:
+            sale.isSynthetic === true,
+
+          syntheticSource:
+            sale.syntheticSource || null,
         });
       }
     }

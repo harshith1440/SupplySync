@@ -7,6 +7,7 @@ const Supplier = require("../models/Supplier");
 const SupplierPaymentProfile = require("../models/SupplierPaymentProfile");
 const PurchaseOrder = require("../models/PurchaseOrder");
 const PaymentTransaction = require("../models/PaymentTransaction");
+const { receivePurchaseOrder } = require("../services/receivePurchaseOrder");
 
 const requireRole = require("../middleware/requireRole");
 
@@ -56,12 +57,35 @@ router.post(
       const purchaseOrder = await PurchaseOrder.findOne({
         _id: purchaseOrderId,
         organizationId,
+        retailerUserId,
       }).populate("supplierId");
 
       if (!purchaseOrder) {
         return res.status(404).json({
           message: "Purchase order not found",
         });
+      }
+
+      if (!purchaseOrder.supplierOrganizationId && purchaseOrder.supplierId?.organizationId) {
+        purchaseOrder.supplierOrganizationId = purchaseOrder.supplierId.organizationId;
+      }
+
+      if (!purchaseOrder.supplierSnapshot && purchaseOrder.supplierId) {
+        const supplier = purchaseOrder.supplierId;
+        const address = supplier.address || {};
+        purchaseOrder.supplierSnapshot = {
+          businessName: supplier.businessName || supplier.supplierName || null,
+          supplierName: supplier.supplierName || null,
+          contactPerson: supplier.contactPerson || null,
+          email: supplier.email || null,
+          phone: supplier.phone || null,
+          addressLine1: supplier.addressLine1 || address.addressLine1 || address.line1 || null,
+          addressLine2: supplier.addressLine2 || address.addressLine2 || address.line2 || null,
+          city: supplier.city || address.city || null,
+          state: supplier.state || address.state || null,
+          pincode: supplier.pincode || address.pincode || address.postalCode || null,
+          country: supplier.country || address.country || null,
+        };
       }
 
       if (purchaseOrder.orderStatus === "cancelled") {
@@ -196,8 +220,17 @@ router.post(
           supplierId:
             purchaseOrder.supplierId._id,
 
+          supplierOrganizationId:
+            purchaseOrder.supplierOrganizationId,
+
           supplierName:
             purchaseOrder.supplierName,
+
+          retailerName: purchaseOrder.retailerName,
+          retailerEmail: purchaseOrder.retailerEmail,
+          retailerPhone: purchaseOrder.retailerPhone,
+          retailerAddress: purchaseOrder.retailerAddress,
+          deliveryAddress: purchaseOrder.deliveryAddress,
 
           purchaseOrderId:
             purchaseOrder._id,
@@ -291,6 +324,7 @@ router.post(
       const auth = getAuth(req);
 
       const organizationId = auth.orgId;
+      const retailerUserId = auth.userId;
 
       const {
         purchaseOrderId,
@@ -326,6 +360,7 @@ router.post(
         await PurchaseOrder.findOne({
           _id: purchaseOrderId,
           organizationId,
+          retailerUserId,
         });
 
       if (!purchaseOrder) {
@@ -372,10 +407,7 @@ router.post(
         paymentTransaction.paymentStatus ===
         "paid"
       ) {
-        purchaseOrder.paymentStatus = "paid";
-        purchaseOrder.orderStatus = "confirmed";
-
-        await purchaseOrder.save();
+        await receivePurchaseOrder(purchaseOrder._id);
 
         return res.status(200).json({
           message:
@@ -540,40 +572,11 @@ router.post(
       |--------------------------------------------------------------------------
       */
 
-      paymentTransaction.paymentStatus =
-        "paid";
-
-      paymentTransaction.razorpayPaymentId =
-        razorpayPaymentId;
-
-      paymentTransaction.razorpaySignature =
-        razorpaySignature;
-
-      paymentTransaction.failureReason =
-        null;
-
-      await paymentTransaction.save();
-
-      /*
-      |--------------------------------------------------------------------------
-      | UPDATE PURCHASE ORDER
-      |--------------------------------------------------------------------------
-      */
-
-      purchaseOrder.paymentStatus =
-        "paid";
-
-      // Successful payment confirms the purchase order.
-      purchaseOrder.orderStatus =
-        "confirmed";
-
-      purchaseOrder.razorpayPaymentId =
-        razorpayPaymentId;
-
-      purchaseOrder.razorpaySignature =
-        razorpaySignature;
-
-      await purchaseOrder.save();
+      await receivePurchaseOrder(purchaseOrder._id, {
+        paymentTransactionId: paymentTransaction._id,
+        razorpayPaymentId,
+        razorpaySignature,
+      });
 
       return res.status(200).json({
         message:
