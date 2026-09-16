@@ -12,6 +12,7 @@ import {
   Eye,
   Sparkles,
   CreditCard,
+  ShieldAlert,
 } from "lucide-react";
 
 import DashboardLayout from "../components/DashboardLayout";
@@ -702,6 +703,52 @@ function RetailerDashboard() {
       {error && <ErrorAlert message={error} onRetry={loadDashboardData} />}
       {paymentSuccess && <SuccessAlert message={paymentSuccess} />}
       {paymentError && <ErrorAlert message={paymentError} />}
+
+      {/* RETAILER APPROVAL STATUS BANNER */}
+      {retailerProfile && (retailerProfile.approvalStatus || "PENDING") === "PENDING" && (
+        <div className="mb-6 p-5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-900 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-amber-500 text-white rounded-xl shrink-0 shadow-sm">
+              <Clock size={22} />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-900 text-base">Retailer Account Under Admin Review</h4>
+              <p className="text-sm text-slate-600 mt-0.5">
+                Your retailer profile is currently pending review by the platform administrator. You can view inventory and forecasts, but submitting purchase orders and making payments are locked until approved.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={loadDashboardData}
+            className="px-3.5 py-1.5 bg-white text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold hover:bg-slate-50 transition-colors shrink-0 cursor-pointer"
+          >
+            Check Status
+          </button>
+        </div>
+      )}
+      {retailerProfile && retailerProfile.approvalStatus === "REJECTED" && (
+        <div className="mb-6 p-5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-900 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-rose-500 text-white rounded-xl shrink-0 shadow-sm">
+              <XCircle size={22} />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-900 text-base">Retailer Registration Application Rejected</h4>
+              <p className="text-sm text-slate-600 mt-0.5">
+                {retailerProfile.approvalReason || "Your retailer account application was not approved by the administrator."}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={openRetailerProfileForm}
+            className="px-3.5 py-1.5 bg-rose-600 text-white rounded-lg text-xs font-semibold hover:bg-rose-700 transition-colors shrink-0 cursor-pointer"
+          >
+            Update Profile & Address
+          </button>
+        </div>
+      )}
 
       {/* OVERVIEW TAB */}
       {activeTab === "overview" && (
@@ -1440,6 +1487,7 @@ function RetailerDashboard() {
                       supplier={suppliers.find((s) => String(s._id) === String(selectedSupplierId))}
                       getToken={getToken}
                       onPurchaseOrderCreated={loadPurchaseOrders}
+                      isApproved={retailerProfile?.approvalStatus === "APPROVED"}
                     />
                   )}
                 </div>

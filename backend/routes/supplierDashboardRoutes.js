@@ -87,6 +87,13 @@ router.get(
         });
       }
 
+      if (supplier.approvalStatus !== "APPROVED") {
+        return res.status(403).json({
+          message: "Supplier account is pending admin approval and cannot access the supplier dashboard yet.",
+          approvalStatus: supplier.approvalStatus || "PENDING",
+        });
+      }
+
       const supplierId = supplier._id;
 
       const supplierOrders = await PurchaseOrder.find({

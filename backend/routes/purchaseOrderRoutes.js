@@ -103,6 +103,13 @@ router.post(
         clerkUserId: auth.userId,
       }).lean();
 
+      if (!retailerProfile || retailerProfile.approvalStatus !== "APPROVED") {
+        return res.status(403).json({
+          message: "Retailer account is pending admin approval and cannot create purchase orders yet.",
+          approvalStatus: retailerProfile?.approvalStatus || "PENDING",
+        });
+      }
+
       retailerName = retailerProfile?.businessName || retailerProfile?.name || null;
       retailerEmail = retailerProfile?.email || null;
       retailerPhone = retailerProfile?.phone || null;
@@ -164,6 +171,7 @@ router.post(
       const supplier = await Supplier.findOne({
         _id: supplierId,
         active: true,
+        approvalStatus: "APPROVED",
         products: {
           $elemMatch: {
             active: { $ne: false },
@@ -173,9 +181,17 @@ router.post(
       }).lean();
 
       if (!supplier) {
+        const supplierRecord = await Supplier.findById(supplierId).lean();
+
+        if (supplierRecord && supplierRecord.approvalStatus !== "APPROVED") {
+          return res.status(403).json({
+            message: "Supplier is pending approval and cannot receive purchase orders yet.",
+          });
+        }
+
         return res.status(404).json({
           message:
-            "Active supplier not found",
+            "Active approved supplier not found",
         });
       }
 

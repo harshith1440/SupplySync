@@ -2,6 +2,7 @@ const express = require("express");
 const { getAuth, clerkClient } = require("@clerk/express");
 const RetailerProfile = require("../models/RetailerProfile");
 const Supplier = require("../models/Supplier");
+const requireRole = require("../middleware/requireRole");
 
 const router = express.Router();
 
@@ -124,6 +125,8 @@ async function createOrUpdateRoleProfile({ organizationId, userId, role, clerkUs
           businessName: name,
           contactPerson: name,
           email,
+          active: false,
+          approvalStatus: "PENDING",
         },
       },
       { new: true, upsert: true, setDefaultsOnInsert: true }
@@ -144,7 +147,8 @@ async function createOrUpdateRoleProfile({ organizationId, userId, role, clerkUs
           leadTimeDays: 0,
           reliabilityScore: 0,
           rating: 0,
-          active: true,
+          active: false,
+          approvalStatus: "PENDING",
         },
       },
       { new: true, upsert: true, setDefaultsOnInsert: true }
@@ -306,7 +310,7 @@ router.post("/role", async (req, res) => {
     if (role === "retailer" && profilePayload.retailer) {
       await RetailerProfile.findOneAndUpdate(
         { organizationId: resolvedOrganization.organizationId, clerkUserId: auth.userId },
-        { $set: profilePayload.retailer },
+        { $set: { ...profilePayload.retailer, active: false, approvalStatus: "PENDING" } },
         { new: true, runValidators: true }
       );
     }
@@ -329,6 +333,171 @@ router.post("/role", async (req, res) => {
       error: error.message,
       code: error.code || null,
     });
+  }
+});
+
+router.get("/admin/users", requireRole("org:admin"), async (req, res) => {
+  try {
+    const auth = getAuth(req);
+
+    if (!auth.isAuthenticated || !auth.userId) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const organizationId = auth.orgId || process.env.CLERK_ORGANIZATION_ID;
+
+    // Fetch all registered users from Clerk and organization memberships
+    const [clerkUsersRes, membershipsRes, retailerProfiles, supplierProfiles] = await Promise.all([
+      clerkClient.users.getUserList({ limit: 200 }),
+      organizationId
+        ? clerkClient.organizations.getOrganizationMembershipList({ organizationId, limit: 200 }).catch(() => ({ data: [] }))
+        : Promise.resolve({ data: [] }),
+      RetailerProfile.find({}).lean(),
+      Supplier.find({}).lean(),
+    ]);
+
+    const membershipByUserId = new Map(
+      (membershipsRes.data || []).map((m) => [m.publicUserData?.userId || m.userId, m])
+    );
+    const retailerByUserId = new Map(retailerProfiles.map((r) => [r.clerkUserId, r]));
+    const supplierByUserId = new Map(
+      supplierProfiles.filter((s) => s.clerkUserId).map((s) => [s.clerkUserId, s])
+    );
+
+    const users = (clerkUsersRes.data || []).map((user) => {
+      const membership = membershipByUserId.get(user.id);
+      const retailer = retailerByUserId.get(user.id);
+      const supplier = supplierByUserId.get(user.id);
+
+      const role = membership?.role || (retailer ? "org:retailer" : supplier ? "org:supplier" : "unassigned");
+
+      let approvalStatus = "APPROVED";
+      if (role === "org:retailer") {
+        approvalStatus = retailer?.approvalStatus || "PENDING";
+      } else if (role === "org:supplier") {
+        approvalStatus = supplier?.approvalStatus || "PENDING";
+      } else if (role === "org:admin") {
+        approvalStatus = "APPROVED";
+      } else {
+        approvalStatus = "PENDING_ROLE";
+      }
+
+      const email = user.primaryEmailAddress?.emailAddress || retailer?.email || supplier?.email || null;
+      const name =
+        user.fullName ||
+        user.username ||
+        retailer?.businessName ||
+        retailer?.name ||
+        supplier?.businessName ||
+        supplier?.supplierName ||
+        email ||
+        user.id;
+
+      return {
+        userId: user.id,
+        name,
+        email,
+        role,
+        approvalStatus,
+        active: retailer ? Boolean(retailer.active) : supplier ? Boolean(supplier.active) : true,
+        createdAt: user.createdAt || membership?.createdAt || retailer?.createdAt || supplier?.createdAt || null,
+      };
+    });
+
+    return res.status(200).json({ users });
+  } catch (error) {
+    console.error("Get admin users error:", error);
+    return res.status(500).json({ message: "Failed to fetch registered users", error: error.message });
+  }
+});
+
+router.get("/admin/retailers", requireRole("org:admin"), async (req, res) => {
+  try {
+    const auth = getAuth(req);
+
+    if (!auth.isAuthenticated || !auth.userId) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const organizationId = auth.orgId || process.env.CLERK_ORGANIZATION_ID;
+    const query = organizationId
+      ? { $or: [{ organizationId }, { organizationId: { $exists: true } }] }
+      : {};
+
+    const retailers = await RetailerProfile.find(query).sort({ createdAt: -1 }).lean();
+
+    return res.status(200).json({
+      retailers: retailers.map((retailer) => ({
+        id: retailer._id,
+        retailerId: retailer._id,
+        clerkUserId: retailer.clerkUserId,
+        name: retailer.name || retailer.businessName || "Retailer",
+        businessName: retailer.businessName || retailer.name || "Retailer",
+        contactPerson: retailer.contactPerson || retailer.address?.contactPerson || retailer.name || null,
+        email: retailer.email || retailer.address?.email || null,
+        phone: retailer.phone || retailer.address?.phone || null,
+        address: retailer.address || null,
+        city: retailer.address?.city || null,
+        state: retailer.address?.state || null,
+        pincode: retailer.address?.pincode || retailer.address?.postalCode || null,
+        country: retailer.address?.country || "India",
+        approvalStatus: retailer.approvalStatus || "PENDING",
+        approvalReason: retailer.approvalReason || null,
+        approvedAt: retailer.approvedAt || null,
+        active: Boolean(retailer.active),
+        createdAt: retailer.createdAt,
+        updatedAt: retailer.updatedAt,
+      })),
+    });
+  } catch (error) {
+    console.error("Get admin retailers error:", error);
+    return res.status(500).json({ message: "Failed to fetch retailers", error: error.message });
+  }
+});
+
+router.patch("/admin/retailers/:id/approval", requireRole("org:admin"), async (req, res) => {
+  try {
+    const auth = getAuth(req);
+
+    if (!auth.isAuthenticated || !auth.userId) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const { status, reason } = req.body || {};
+    const normalizedStatus = String(status || "").trim().toUpperCase();
+
+    if (!["APPROVED", "REJECTED"].includes(normalizedStatus)) {
+      return res.status(400).json({ message: "approval status must be APPROVED or REJECTED" });
+    }
+
+    const retailer = await RetailerProfile.findOne({ _id: req.params.id });
+    if (!retailer) {
+      return res.status(404).json({ message: "Retailer not found" });
+    }
+
+    retailer.approvalStatus = normalizedStatus;
+    retailer.approvalReason =
+      normalizedStatus === "APPROVED"
+        ? null
+        : String(reason || "").trim() || "Retailer profile did not meet approval requirements.";
+    retailer.approvedAt = normalizedStatus === "APPROVED" ? new Date() : null;
+    retailer.active = normalizedStatus === "APPROVED";
+    await retailer.save();
+
+    return res.status(200).json({
+      message: `Retailer ${normalizedStatus.toLowerCase()} successfully`,
+      retailer: {
+        id: retailer._id,
+        name: retailer.name || retailer.businessName,
+        approvalStatus: retailer.approvalStatus,
+        approvalReason: retailer.approvalReason,
+        approvedAt: retailer.approvedAt,
+        active: retailer.active,
+      },
+    });
+  } catch (error) {
+    console.error("Update retailer approval error:", error);
+    return res.status(500).json({ message: "Failed to update retailer approval", error: error.message });
   }
 });
 

@@ -30,6 +30,15 @@ const retailerProfileSchema = new mongoose.Schema(
     contactPerson: { type: String, trim: true, default: null },
     addressLine1: { type: String, trim: true, default: null },
     addressLine2: { type: String, trim: true, default: null },
+    active: { type: Boolean, default: false },
+    approvalStatus: {
+      type: String,
+      enum: ["PENDING", "APPROVED", "REJECTED"],
+      default: "PENDING",
+      index: true,
+    },
+    approvalReason: { type: String, trim: true, default: null },
+    approvedAt: { type: Date, default: null, index: true },
   },
   { timestamps: true }
 );

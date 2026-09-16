@@ -10,7 +10,7 @@ function formatCurrency(value) {
   })}`;
 }
 
-function PurchaseOrderPanel({ supplier, getToken, onPurchaseOrderCreated }) {
+function PurchaseOrderPanel({ supplier, getToken, onPurchaseOrderCreated, isApproved = true }) {
   const [quantities, setQuantities] = useState({});
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -208,13 +208,19 @@ function PurchaseOrderPanel({ supplier, getToken, onPurchaseOrderCreated }) {
           <div>
             <p className="text-xs text-muted" style={{ margin: 0 }}>Total Order Estimate</p>
             <h2 className="m-0 text-primary-700">{formatCurrency(calculateTotal())}</h2>
+            {!isApproved && (
+              <p className="text-xs text-amber-600 font-semibold mt-1">
+                Account pending Admin approval. Purchase order placement is locked until approved.
+              </p>
+            )}
           </div>
 
           <button
             type="button"
             className="btn btn-gradient btn-lg"
             onClick={handleCreatePurchaseOrder}
-            disabled={loading || products.length === 0 || calculateTotal() === 0}
+            disabled={loading || !isApproved || products.length === 0 || calculateTotal() === 0}
+            title={!isApproved ? "Account pending approval" : ""}
           >
             {loading ? (
               <>

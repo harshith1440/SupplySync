@@ -73,15 +73,35 @@ function SupplierDashboard() {
     unitPrice: "", minimumOrderQuantity: "", availableQuantity: "", leadTimeDays: "", manufacturingDate: "", expiryDate: "", active: true,
   });
 
+  const [isPendingApproval, setIsPendingApproval] = useState(false);
+  const [isRejectedApproval, setIsRejectedApproval] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState("");
+
   async function loadDashboard() {
     try {
       setLoading(true);
       setError("");
+      setIsPendingApproval(false);
+      setIsRejectedApproval(false);
       const data = await getSupplierDashboard(getToken);
       setDashboard(data);
     } catch (requestError) {
       console.error("Supplier dashboard load error:", requestError);
-      setError(requestError.message || "Failed to load supplier dashboard data.");
+      const msg = String(requestError.message || "");
+      if (
+        msg.toLowerCase().includes("pending admin approval") ||
+        requestError.approvalStatus === "PENDING"
+      ) {
+        setIsPendingApproval(true);
+      } else if (
+        msg.toLowerCase().includes("rejected") ||
+        requestError.approvalStatus === "REJECTED"
+      ) {
+        setIsRejectedApproval(true);
+        setRejectionReason(msg);
+      } else {
+        setError(msg || "Failed to load supplier dashboard data.");
+      }
     } finally {
       setLoading(false);
     }
@@ -216,6 +236,40 @@ function SupplierDashboard() {
 
       {loading ? (
         <LoadingState message="Loading supplier workspace..." />
+      ) : isPendingApproval ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 md:p-12 text-center max-w-xl mx-auto my-8">
+          <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-amber-200">
+            <Clock size={28} />
+          </div>
+          <h3 className="text-xl font-bold text-slate-900 mb-2">Supplier Account Under Admin Review</h3>
+          <p className="text-sm text-slate-600 leading-relaxed mb-6">
+            Thank you for registering as a SupplySync supplier. Your application has been submitted to the platform administrator and is currently pending approval. Once approved, you will have full access to manage your catalog, receive retailer purchase orders, and receive payouts.
+          </p>
+          <button
+            type="button"
+            onClick={loadDashboard}
+            className="px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-sm font-semibold shadow-md shadow-primary-600/20 transition-all cursor-pointer"
+          >
+            Check Approval Status
+          </button>
+        </div>
+      ) : isRejectedApproval ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 md:p-12 text-center max-w-xl mx-auto my-8">
+          <div className="w-14 h-14 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-rose-200">
+            <XCircle size={28} />
+          </div>
+          <h3 className="text-xl font-bold text-slate-900 mb-2">Supplier Registration Not Approved</h3>
+          <p className="text-sm text-slate-600 leading-relaxed mb-6">
+            {rejectionReason || "Your supplier application did not meet the platform onboarding requirements. Please contact the administrator for more details."}
+          </p>
+          <button
+            type="button"
+            onClick={loadDashboard}
+            className="px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-sm font-semibold transition-all cursor-pointer"
+          >
+            Check Status Again
+          </button>
+        </div>
       ) : !dashboard ? (
         <EmptyState title="No supplier data available" description="Unable to load supplier dashboard profile." />
       ) : (

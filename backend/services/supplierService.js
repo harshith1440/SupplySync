@@ -158,6 +158,7 @@ async function getSupplierRecommendation(
   const suppliers =
     await Supplier.find({
       active: true,
+      approvalStatus: "APPROVED",
       products: {
         $elemMatch: {
           sku: normalizedSku,
@@ -222,6 +223,7 @@ async function getSuppliersForSku(
   const suppliers =
     await Supplier.find({
       active: true,
+      approvalStatus: "APPROVED",
       products: {
         $elemMatch: {
           sku: normalizedSku,

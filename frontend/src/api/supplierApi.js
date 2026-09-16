@@ -69,6 +69,17 @@ export async function getSupplierProfile(getToken) {
   return apiRequest("/me", {}, getToken);
 }
 
+export async function getSupplierApprovals(getToken) {
+  return apiRequest("/admin/approvals", {}, getToken);
+}
+
+export async function updateSupplierApproval(supplierId, status, reason, getToken) {
+  return apiRequest(`/admin/${encodeURIComponent(supplierId)}/approval`, {
+    method: "PATCH",
+    body: JSON.stringify({ status, reason }),
+  }, getToken);
+}
+
 export async function updateSupplierProfile(profile, getToken) {
   return apiRequest(
     "/me/profile",

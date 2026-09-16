@@ -7,6 +7,7 @@ const Supplier = require("../models/Supplier");
 const SupplierPaymentProfile = require("../models/SupplierPaymentProfile");
 const PurchaseOrder = require("../models/PurchaseOrder");
 const PaymentTransaction = require("../models/PaymentTransaction");
+const RetailerProfile = require("../models/RetailerProfile");
 const { receivePurchaseOrder } = require("../services/receivePurchaseOrder");
 
 const requireRole = require("../middleware/requireRole");
@@ -39,6 +40,20 @@ router.post(
 
       const organizationId = auth.orgId;
       const retailerUserId = auth.userId;
+
+      const retailerProfile = await RetailerProfile.findOne({
+        $or: [
+          { organizationId, clerkUserId: retailerUserId },
+          { clerkUserId: retailerUserId },
+        ],
+      }).lean();
+
+      if (!retailerProfile || retailerProfile.approvalStatus !== "APPROVED") {
+        return res.status(403).json({
+          message: "Retailer account is pending admin approval and cannot initiate payments yet.",
+          approvalStatus: retailerProfile?.approvalStatus || "PENDING",
+        });
+      }
 
       const { purchaseOrderId } = req.body;
 

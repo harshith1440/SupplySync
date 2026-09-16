@@ -45,6 +45,10 @@ app.use(
   "/api/admin/transactions",
   adminTransactionRoutes
 );
+app.use(
+  "/api/admin",
+  adminTransactionRoutes
+);
 
 app.get("/", (req, res) => {
   res.json({

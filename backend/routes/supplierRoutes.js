@@ -131,6 +131,32 @@ function hasMarketplaceIdentity(supplier) {
   );
 }
 
+async function requireApprovedSupplier(auth, res, { allowPending = false } = {}) {
+  if (!auth?.orgId || !auth?.userId) {
+    return null;
+  }
+
+  const supplier = await Supplier.findOne({
+    organizationId: auth.orgId,
+    clerkUserId: auth.userId,
+    active: true,
+  }).lean();
+
+  if (!supplier) {
+    return null;
+  }
+
+  if (supplier.approvalStatus !== "APPROVED" && !allowPending) {
+    res.status(403).json({
+      message: "Supplier account is pending admin approval and cannot perform supplier operations yet.",
+      approvalStatus: supplier.approvalStatus || "PENDING",
+    });
+    return null;
+  }
+
+  return supplier;
+}
+
 /*
 ========================================================
 GET CURRENT SUPPLIER PROFILE
@@ -207,6 +233,7 @@ router.get(
                 reliabilityScore: 0,
                 rating: 0,
                 active: true,
+                approvalStatus: "PENDING",
               },
             },
             { new: true, upsert: true, setDefaultsOnInsert: true }
@@ -218,6 +245,13 @@ router.get(
         return res.status(404).json({
           message:
             "No supplier profile is linked to this account",
+        });
+      }
+
+      if (supplier.approvalStatus !== "APPROVED") {
+        return res.status(403).json({
+          message: "Supplier account is pending admin approval and cannot access supplier operations yet.",
+          approvalStatus: supplier.approvalStatus || "PENDING",
         });
       }
 
@@ -270,6 +304,12 @@ router.get(
         active: true,
       }).lean();
       if (!supplier) return res.status(404).json({ message: "Supplier profile not found" });
+      if (supplier.approvalStatus !== "APPROVED") {
+        return res.status(403).json({
+          message: "Supplier account is pending admin approval and cannot view products yet.",
+          approvalStatus: supplier.approvalStatus || "PENDING",
+        });
+      }
       return res.json({ products: supplier.products || [] });
     } catch (error) {
       console.error("Fetch supplier products error:", error);
@@ -284,17 +324,28 @@ router.put(
   async (req, res) => {
     try {
       const auth = getAuth(req);
+      const supplier = await Supplier.findOne({
+        organizationId: auth.orgId,
+        clerkUserId: auth.userId,
+        active: true,
+      });
+      if (!supplier) return res.status(404).json({ message: "Supplier profile not found" });
+      if (supplier.approvalStatus !== "APPROVED") {
+        return res.status(403).json({
+          message: "Supplier account is pending admin approval and cannot update profile details yet.",
+          approvalStatus: supplier.approvalStatus || "PENDING",
+        });
+      }
       const profile = normalizeSupplierProfile(req.body);
       if (!validateSupplierProfile(profile)) {
         return res.status(400).json({ message: "Complete supplier profile details are required" });
       }
-      const supplier = await Supplier.findOneAndUpdate(
+      const updatedSupplier = await Supplier.findOneAndUpdate(
         { organizationId: auth.orgId, clerkUserId: auth.userId, active: true },
         { $set: profile },
         { new: true, runValidators: true }
       ).lean();
-      if (!supplier) return res.status(404).json({ message: "Supplier profile not found" });
-      return res.json({ message: "Supplier profile saved successfully", supplier });
+      return res.json({ message: "Supplier profile saved successfully", supplier: updatedSupplier });
     } catch (error) {
       console.error("Save supplier profile error:", error);
       return res.status(500).json({ message: "Failed to save supplier profile" });
@@ -312,6 +363,12 @@ router.post(
       if (!validateProduct(product)) return res.status(400).json({ message: "Product name, SKU, brand, category, unit, price, MOQ, stock, lead time, and valid manufacturing/expiry dates are required" });
       const supplier = await Supplier.findOne({ organizationId: auth.orgId, clerkUserId: auth.userId, active: true });
       if (!supplier) return res.status(404).json({ message: "Supplier profile not found" });
+      if (supplier.approvalStatus !== "APPROVED") {
+        return res.status(403).json({
+          message: "Supplier account is pending admin approval and cannot manage catalog items yet.",
+          approvalStatus: supplier.approvalStatus || "PENDING",
+        });
+      }
       if (supplier.products.some((item) => item.sku === product.sku)) return res.status(409).json({ message: "SKU already exists in supplier catalog" });
       product.supplierId = supplier._id;
       product.organizationId = auth.orgId;
@@ -502,6 +559,118 @@ GET ALL ACTIVE SUPPLIERS
 */
 
 router.get(
+  "/admin/approvals",
+  requireRole("org:admin"),
+  async (req, res) => {
+    try {
+      const auth = getAuth(req);
+
+      if (!auth.orgId) {
+        return res.status(400).json({
+          message: "Organization not found",
+        });
+      }
+
+      const suppliers = await Supplier.find({
+        organizationId: auth.orgId,
+      })
+        .sort({ createdAt: -1 })
+        .lean();
+
+      return res.status(200).json({
+        message: "Supplier approvals fetched successfully",
+        suppliers: suppliers.map((supplier) => ({
+          id: supplier._id,
+          supplierId: supplier._id,
+          supplierName: supplier.supplierName,
+          businessName: supplier.businessName || supplier.supplierName,
+          contactPerson: supplier.contactPerson || null,
+          email: supplier.email || null,
+          phone: supplier.phone || null,
+          city: supplier.city || supplier.address?.city || null,
+          state: supplier.state || supplier.address?.state || null,
+          country: supplier.country || supplier.address?.country || null,
+          leadTimeDays: supplier.leadTimeDays,
+          reliabilityScore: supplier.reliabilityScore,
+          rating: supplier.rating,
+          active: supplier.active,
+          approvalStatus: supplier.approvalStatus || "PENDING",
+          approvalReason: supplier.approvalReason || null,
+          approvedAt: supplier.approvedAt || null,
+          createdAt: supplier.createdAt,
+          updatedAt: supplier.updatedAt,
+        })),
+      });
+    } catch (error) {
+      console.error("Fetch supplier approvals error:", error);
+      return res.status(500).json({
+        message: "Failed to fetch supplier approvals",
+        error: error.message,
+      });
+    }
+  }
+);
+
+router.patch(
+  "/admin/:id/approval",
+  requireRole("org:admin"),
+  async (req, res) => {
+    try {
+      const auth = getAuth(req);
+      const { status, reason } = req.body || {};
+      const normalizedStatus = String(status || "").trim().toUpperCase();
+
+      if (!auth.orgId) {
+        return res.status(400).json({
+          message: "Organization not found",
+        });
+      }
+
+      if (!["APPROVED", "REJECTED"].includes(normalizedStatus)) {
+        return res.status(400).json({
+          message: "approval status must be APPROVED or REJECTED",
+        });
+      }
+
+      const supplier = await Supplier.findOne({
+        _id: req.params.id,
+        organizationId: auth.orgId,
+      });
+
+      if (!supplier) {
+        return res.status(404).json({
+          message: "Supplier not found",
+        });
+      }
+
+      supplier.approvalStatus = normalizedStatus;
+      supplier.approvalReason = normalizedStatus === "APPROVED" ? null : (String(reason || "").trim() || "Supplier profile did not meet approval requirements.");
+      supplier.approvedAt = normalizedStatus === "APPROVED" ? new Date() : null;
+      supplier.active = normalizedStatus === "APPROVED";
+      await supplier.save();
+
+      return res.status(200).json({
+        message: `Supplier ${normalizedStatus.toLowerCase()} successfully`,
+        supplier: {
+          id: supplier._id,
+          supplierName: supplier.supplierName,
+          approvalStatus: supplier.approvalStatus,
+          approvalReason: supplier.approvalReason,
+          approvedAt: supplier.approvedAt,
+          active: supplier.active,
+        },
+      });
+    } catch (error) {
+      console.error("Update supplier approval error:", error);
+      return res.status(500).json({
+        message: "Failed to update supplier approval",
+        error: error.message,
+      });
+    }
+  }
+);
+
+router.get(
   "/",
   requireRole("org:retailer"),
   async (req, res) => {
@@ -516,6 +685,7 @@ router.get(
 
       const suppliers = await Supplier.find({
         active: true,
+        approvalStatus: "APPROVED",
         products: {
           $elemMatch: {
             active: { $ne: false },
@@ -658,6 +828,7 @@ router.get(
       const suppliers =
         await Supplier.find({
           active: true,
+          approvalStatus: "APPROVED",
           products: {
             $elemMatch: {
               sku: normalizedSku,

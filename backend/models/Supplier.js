@@ -182,6 +182,25 @@ const supplierSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+
+    approvalStatus: {
+      type: String,
+      enum: ["PENDING", "APPROVED", "REJECTED"],
+      default: "PENDING",
+      index: true,
+    },
+
+    approvalReason: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+
+    approvedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
   },
   {
     timestamps: true,

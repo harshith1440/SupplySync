@@ -53,13 +53,13 @@ export function StatusBadge({ value, customClass }) {
   let variantClass = "bg-slate-100 text-slate-700 border-slate-200";
   let dotClass = "bg-slate-400";
   
-  if (["paid", "completed", "active", "delivered", "normal", "success"].includes(valLower)) {
+  if (["paid", "completed", "active", "delivered", "normal", "success", "approved"].includes(valLower)) {
     variantClass = "bg-emerald-50 text-emerald-700 border-emerald-200";
     dotClass = "bg-emerald-500";
   } else if (["pending", "expiring_soon", "transferred", "created", "processing"].includes(valLower)) {
     variantClass = "bg-amber-50 text-amber-700 border-amber-200";
     dotClass = "bg-amber-500";
-  } else if (["failed", "expired", "cancelled", "low_stock", "out_of_stock", "inactive"].includes(valLower)) {
+  } else if (["failed", "expired", "cancelled", "low_stock", "out_of_stock", "inactive", "rejected"].includes(valLower)) {
     variantClass = "bg-rose-50 text-rose-700 border-rose-200";
     dotClass = "bg-rose-500";
   } else if (["refunded", "initiated"].includes(valLower)) {
