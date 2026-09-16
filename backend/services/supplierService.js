@@ -7,7 +7,7 @@ const {
   recommendSuppliers,
 } = require("./supplierRecommendation");
 
-const PYTHON_COMMAND = "python3";
+const PYTHON_COMMAND = process.platform === "win32" ? "python" : "python3";
 
 const FORECAST_SCRIPT =
   "forecasting/predict.py";

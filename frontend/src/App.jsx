@@ -146,7 +146,8 @@ function ProtectedRoute({ allowedRole, children }) {
     return <Navigate to="/sign-in" replace />;
   }
 
-  if (orgRole !== allowedRole) {
+  const allowedRoles = Array.isArray(allowedRole) ? allowedRole : [allowedRole];
+  if (!allowedRoles.includes(orgRole)) {
     return <Navigate to="/" replace />;
   }
 
@@ -174,7 +175,7 @@ function App() {
       <Route
         path="/retailer"
         element={
-          <ProtectedRoute allowedRole="org:retailer">
+          <ProtectedRoute allowedRole={["org:retailer", "org:retailer_admin"]}>
             <RetailerDashboard />
           </ProtectedRoute>
         }

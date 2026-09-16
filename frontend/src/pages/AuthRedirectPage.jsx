@@ -23,7 +23,7 @@ function AuthRedirectPage() {
     return <Navigate to="/admin" replace />;
   }
 
-  if (orgRole === "org:retailer") {
+  if (orgRole === "org:retailer" || orgRole === "org:retailer_admin") {
     return <Navigate to="/retailer" replace />;
   }
 

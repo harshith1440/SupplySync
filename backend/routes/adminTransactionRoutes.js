@@ -369,23 +369,16 @@ router.get(
             0
           );
 
-      const pendingPayoutValue =
-        payouts
+      const pendingPayoutValue = Math.max(
+        0,
+        purchaseOrders
           .filter(
-            (payout) =>
-              payout.payoutStatus ===
-                "pending" ||
-              payout.payoutStatus ===
-                "processing"
+            (order) =>
+              order.paymentStatus !== "paid" &&
+              ["confirmed", "shipped", "delivered"].includes(order.orderStatus)
           )
-          .reduce(
-            (sum, payout) =>
-              sum +
-              Number(
-                payout.amount || 0
-              ),
-            0
-          );
+          .reduce((sum, order) => sum + Number(order.totalAmount || 0), 0)
+      );
 
       const completedPayoutValue =
         payouts

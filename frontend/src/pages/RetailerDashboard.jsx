@@ -38,10 +38,12 @@ import {
 import { getForecastBasedSupplierRecommendation } from "../api/supplierRecommendationApi";
 import {
   getPurchaseOrders,
+  receivePurchaseOrder,
   markPurchaseOrderDelivered,
   submitSupplierFeedback,
 } from "../api/purchaseOrderApi";
 import { createPaymentOrder, verifyPayment } from "../api/paymentApi";
+import { getBills, generateBill, createBillPaymentOrder, verifyBillPayment } from "../api/billApi";
 import { getDemandForecast } from "../api/forecastApi";
 import { getSuppliers } from "../api/supplierApi";
 import { recordSale } from "../api/saleApi";
@@ -100,6 +102,10 @@ function RetailerDashboard() {
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [purchaseOrdersLoading, setPurchaseOrdersLoading] = useState(true);
   const [purchaseOrdersError, setPurchaseOrdersError] = useState("");
+  const [bills, setBills] = useState([]);
+  const [billsLoading, setBillsLoading] = useState(true);
+  const [billsError, setBillsError] = useState("");
+  const [billPaymentLoadingId, setBillPaymentLoadingId] = useState(null);
   const [selectedPurchaseOrder, setSelectedPurchaseOrder] = useState(null);
   const [feedbackOrder, setFeedbackOrder] = useState(null);
   const [feedbackRating, setFeedbackRating] = useState("5");
@@ -270,6 +276,29 @@ function RetailerDashboard() {
     }
   }
 
+  async function loadBills() {
+    try {
+      setBillsLoading(true);
+      setBillsError("");
+      const data = await getBills(getToken);
+      setBills(data.bills || []);
+    } catch (err) {
+      setBillsError(err.message || "Failed to load bills");
+    } finally {
+      setBillsLoading(false);
+    }
+  }
+
+  async function handleGenerateBill() {
+    try {
+      setBillsError("");
+      await generateBill(getToken);
+      await Promise.all([loadBills(), loadPurchaseOrders()]);
+    } catch (err) {
+      setBillsError(err.message || "Failed to generate bill");
+    }
+  }
+
   async function handleMarkDelivered(order) {
     try {
       setPurchaseOrdersError("");
@@ -281,6 +310,16 @@ function RetailerDashboard() {
       );
     } catch (err) {
       setPurchaseOrdersError(err.message || "Failed to mark order as delivered.");
+    }
+  }
+
+  async function handleReceivePurchaseOrder(order) {
+    try {
+      setPurchaseOrdersError("");
+      await receivePurchaseOrder(order._id, getToken);
+      await Promise.all([loadPurchaseOrders(), loadInventory(), loadLowStockInventory()]);
+    } catch (err) {
+      setPurchaseOrdersError(err.message || "Failed to receive purchase order.");
     }
   }
 
@@ -352,6 +391,7 @@ function RetailerDashboard() {
       loadLowStockInventory(),
       loadExpiryData(),
       loadPurchaseOrders(),
+      loadBills(),
       loadSuppliers(),
       loadRetailerProfile(),
     ]);
@@ -476,6 +516,43 @@ function RetailerDashboard() {
       console.error("Payment error:", err);
       setPaymentError(err.message || "Failed to start Razorpay payment.");
       setPaymentLoadingId(null);
+    }
+  }
+
+  async function handleBillPayment(bill) {
+    try {
+      setBillPaymentLoadingId(bill._id);
+      setPaymentError("");
+      if (!(await loadRazorpayScript())) throw new Error("Failed to load Razorpay Checkout script.");
+      const orderData = await createBillPaymentOrder(bill._id, getToken);
+      const razorpay = new window.Razorpay({
+        key: orderData.keyId,
+        amount: orderData.razorpayOrder.amount,
+        currency: orderData.razorpayOrder.currency,
+        name: "SupplySync AI",
+        description: `Payment for ${bill.billNumber}`,
+        order_id: orderData.razorpayOrder.id,
+        handler: async (response) => {
+          try {
+            await verifyBillPayment({ billId: bill._id, razorpayOrderId: response.razorpay_order_id, razorpayPaymentId: response.razorpay_payment_id, razorpaySignature: response.razorpay_signature }, getToken);
+            setPaymentSuccess(`Payment successful for ${bill.billNumber}.`);
+            await Promise.all([loadBills(), loadPurchaseOrders(), loadInventory(), loadLowStockInventory()]);
+          } catch (err) {
+            setPaymentError(err.message || "Bill payment verification failed.");
+          } finally {
+            setBillPaymentLoadingId(null);
+          }
+        },
+        modal: { ondismiss: () => setBillPaymentLoadingId(null) },
+      });
+      razorpay.on("payment.failed", (response) => {
+        setPaymentError(response.error?.description || "Bill payment failed.");
+        setBillPaymentLoadingId(null);
+      });
+      razorpay.open();
+    } catch (err) {
+      setPaymentError(err.message || "Failed to start bill payment.");
+      setBillPaymentLoadingId(null);
     }
   }
 
@@ -687,6 +764,7 @@ function RetailerDashboard() {
     },
     { id: "forecast", label: "AI Demand Forecast", icon: Sparkles },
     { id: "orders", label: "Purchase Orders & Pay", icon: ShoppingCart, badge: purchaseOrders.length },
+    { id: "bills", label: "Bills & Statements", icon: CreditCard, badge: bills.filter((bill) => bill.status !== "PAID").length },
   ];
 
   return (
@@ -1558,7 +1636,11 @@ function RetailerDashboard() {
                             </button>
                           </td>
                           <td className="px-6 py-4">
-                            {po.paymentStatus === "paid" ? (
+                            {!po.inventoryUpdatedAt ? (
+                              <button type="button" className="btn btn-sm btn-secondary" onClick={() => handleReceivePurchaseOrder(po)}>
+                                Receive & Add to Inventory
+                              </button>
+                            ) : po.paymentStatus === "paid" ? (
                               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                 <StatusBadge value="paid" />
                                 {po.orderStatus === "confirmed" || po.orderStatus === "shipped" ? (
@@ -1581,24 +1663,7 @@ function RetailerDashboard() {
                                 ) : null}
                               </div>
                             ) : (
-                              <button
-                                type="button"
-                                className="btn btn-sm btn-gradient"
-                                onClick={() => handlePayment(po)}
-                                disabled={paymentLoadingId === po._id}
-                              >
-                                {paymentLoadingId === po._id ? (
-                                  <>
-                                    <span className="spinner" />
-                                    <span>Opening...</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <CreditCard size={14} />
-                                    <span>Pay Now</span>
-                                  </>
-                                )}
-                              </button>
+                              <span className="text-xs font-semibold text-slate-500">Included in bill</span>
                             )}
                           </td>
                         </tr>
@@ -1608,6 +1673,31 @@ function RetailerDashboard() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "bills" && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+          <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-4">
+            <div>
+              <h3 className="m-0">Bills & Statements</h3>
+              <p className="text-xs text-muted m-0">Pay any time before the 30-day deadline.</p>
+            </div>
+            <button type="button" className="btn btn-gradient" onClick={handleGenerateBill}>Generate Statement</button>
+          </div>
+          <div className="p-6">
+            {billsError && <ErrorAlert message={billsError} />}
+            {billsLoading ? <LoadingState message="Loading bills..." /> : bills.length === 0 ? (
+              <EmptyState title="No bills generated yet" description="Generate a statement to group your unpaid purchases." />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead><tr className="border-b border-slate-100"><th className="px-4 py-3 text-xs text-slate-500 uppercase">Bill</th><th className="px-4 py-3 text-xs text-slate-500 uppercase">Purchases</th><th className="px-4 py-3 text-xs text-slate-500 uppercase">Amount</th><th className="px-4 py-3 text-xs text-slate-500 uppercase">Due</th><th className="px-4 py-3 text-xs text-slate-500 uppercase">Status</th><th className="px-4 py-3 text-xs text-slate-500 uppercase">Action</th></tr></thead>
+                  <tbody>{bills.map((bill) => <tr key={bill._id} className="border-b border-slate-50"><td className="px-4 py-3 font-semibold">{bill.billNumber}</td><td className="px-4 py-3">{bill.purchaseOrderIds?.length || 0}</td><td className="px-4 py-3 font-bold">{formatCurrency(bill.totalAmount)}</td><td className="px-4 py-3">{formatDateForDisplay(bill.dueDate)}</td><td className="px-4 py-3"><StatusBadge value={bill.status} /></td><td className="px-4 py-3">{bill.status === "PAID" ? <StatusBadge value="paid" /> : <button type="button" className="btn btn-sm btn-gradient" onClick={() => handleBillPayment(bill)} disabled={billPaymentLoadingId === bill._id}>{billPaymentLoadingId === bill._id ? "Opening..." : "Pay Bill"}</button>}</td></tr>)}</tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}

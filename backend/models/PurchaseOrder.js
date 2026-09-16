@@ -219,6 +219,13 @@ const purchaseOrderSchema = new mongoose.Schema(
       index: true,
     },
 
+    billId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "RetailerBill",
+      default: null,
+      index: true,
+    },
+
     razorpayOrderId: {
       type: String,
       trim: true,

@@ -18,6 +18,7 @@ const purchaseOrderRoutes = require("./routes/purchaseOrderRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const payoutRoutes = require("./routes/payoutRoutes");
 const supplierDashboardRoutes = require("./routes/supplierDashboardRoutes");
+const billRoutes = require("./routes/billRoutes");
 
 require("dotenv").config();
 
@@ -36,6 +37,7 @@ app.use("/api/forecast", forecastRoutes);
 app.use("/api/suppliers", supplierRoutes);
 app.use("/api/purchase-orders", purchaseOrderRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/bills", billRoutes);
 app.use("/api/payouts", payoutRoutes);
 app.use(
   "/api/supplier-dashboard",

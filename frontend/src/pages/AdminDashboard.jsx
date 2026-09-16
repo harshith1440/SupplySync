@@ -87,6 +87,14 @@ function RoleBadge({ role }) {
       </span>
     );
   }
+  if (role === "org:retailer_admin") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+        <ShieldCheck size={13} />
+        Retailer Admin
+      </span>
+    );
+  }
   if (role === "org:retailer" || role === "retailer") {
     return (
       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -354,7 +362,7 @@ export default function AdminDashboard() {
     const matchesRole =
       userRoleFilter === "all" ||
       (userRoleFilter === "admin" && (u.role === "org:admin" || u.role === "admin")) ||
-      (userRoleFilter === "retailer" && (u.role === "org:retailer" || u.role === "retailer")) ||
+      (userRoleFilter === "retailer" && (u.role === "org:retailer" || u.role === "org:retailer_admin" || u.role === "retailer")) ||
       (userRoleFilter === "supplier" && (u.role === "org:supplier" || u.role === "supplier")) ||
       (userRoleFilter === "unassigned" && u.role === "unassigned");
 

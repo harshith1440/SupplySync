@@ -672,7 +672,7 @@ router.patch(
 
 router.get(
   "/",
-  requireRole("org:retailer"),
+  requireRole("org:retailer", "org:retailer_admin"),
   async (req, res) => {
     try {
       const auth = getAuth(req);
@@ -753,7 +753,7 @@ Alternative Suppliers
 
 router.get(
   "/forecast-recommendation/:sku",
-  requireRole("org:retailer"),
+  requireRole("org:retailer", "org:retailer_admin"),
   async (req, res) => {
     try {
       const auth = getAuth(req);
@@ -809,7 +809,7 @@ Uses the supplier.products catalog.
 
 router.get(
   "/:sku",
-  requireRole("org:retailer"),
+  requireRole("org:retailer", "org:retailer_admin"),
   async (req, res) => {
     try {
       const auth = getAuth(req);
