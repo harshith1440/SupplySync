@@ -8,7 +8,8 @@ const SupplierPaymentProfile = require("../models/SupplierPaymentProfile");
 const PurchaseOrder = require("../models/PurchaseOrder");
 const PaymentTransaction = require("../models/PaymentTransaction");
 const RetailerProfile = require("../models/RetailerProfile");
-const { receivePurchaseOrder } = require("../services/receivePurchaseOrder");
+const RetailerBill = require("../models/RetailerBill");
+const { retailerOwnershipFilter } = require("../middleware/retailerScope");
 
 const requireRole = require("../middleware/requireRole");
 
@@ -20,6 +21,97 @@ const {
 } = require("../services/razorpayService");
 
 const router = express.Router();
+
+router.post(
+  "/bill-order",
+  requireRole("org:retailer", "org:retailer_admin"),
+  async (req, res) => {
+    try {
+      const auth = getAuth(req);
+      const bill = await RetailerBill.findOne({
+        _id: req.body.billId,
+        ...retailerOwnershipFilter(auth),
+      }).populate({ path: "purchaseOrderIds", populate: { path: "supplierId" } });
+      if (!bill) return res.status(404).json({ message: "Bill not found" });
+      if (bill.status === "PAID") return res.status(400).json({ message: "Bill is already paid" });
+      if (!bill.totalAmount || bill.totalAmount <= 0) return res.status(400).json({ message: "Bill has an invalid payment amount" });
+
+      const firstOrder = bill.purchaseOrderIds[0];
+      if (!firstOrder) return res.status(400).json({ message: "Bill has no purchase orders" });
+      const existing = bill.razorpayOrderId && await PaymentTransaction.findOne({ billId: bill._id, razorpayOrderId: bill.razorpayOrderId });
+      if (existing) {
+        return res.json({ paymentTransactionId: existing._id, razorpayOrder: { id: existing.razorpayOrderId, amount: existing.amount * 100, currency: existing.currency }, bill });
+      }
+
+      const razorpayOrder = await createRazorpayOrder({
+        amount: Math.round(bill.totalAmount * 100),
+        currency: "INR",
+        receipt: bill.billNumber,
+        notes: { billId: bill._id.toString(), billNumber: bill.billNumber, organizationId: auth.orgId },
+      });
+      bill.razorpayOrderId = razorpayOrder.id;
+      await bill.save();
+      const transaction = await PaymentTransaction.create({
+        organizationId: auth.orgId,
+        retailerUserId: bill.retailerUserId,
+        retailerName: firstOrder.retailerName,
+        retailerEmail: firstOrder.retailerEmail,
+        retailerPhone: firstOrder.retailerPhone,
+        retailerAddress: firstOrder.retailerAddress,
+        deliveryAddress: firstOrder.deliveryAddress,
+        supplierId: firstOrder.supplierId?._id,
+        supplierOrganizationId: firstOrder.supplierOrganizationId,
+        supplierName: firstOrder.supplierName,
+        purchaseOrderId: firstOrder._id,
+        poNumber: firstOrder.poNumber,
+        billId: bill._id,
+        amount: bill.totalAmount,
+        currency: "INR",
+        razorpayOrderId: razorpayOrder.id,
+      });
+      return res.status(201).json({ paymentTransactionId: transaction._id, razorpayOrder, bill, keyId: process.env.RAZORPAY_KEY_ID });
+    } catch (error) {
+      console.error("Create bill Razorpay order error:", error);
+      return res.status(500).json({ message: "Failed to create bill payment order" });
+    }
+  }
+);
+
+router.post(
+  "/bill-verify",
+  requireRole("org:retailer", "org:retailer_admin"),
+  async (req, res) => {
+    try {
+      const auth = getAuth(req);
+      const { billId, razorpayOrderId, razorpayPaymentId, razorpaySignature } = req.body;
+      const bill = await RetailerBill.findOne({ _id: billId, ...retailerOwnershipFilter(auth) });
+      if (!bill) return res.status(404).json({ message: "Bill not found" });
+      const transaction = await PaymentTransaction.findOne({ billId: bill._id, organizationId: auth.orgId, razorpayOrderId });
+      if (!transaction) return res.status(404).json({ message: "Bill payment transaction not found" });
+      const expectedSignature = crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET).update(`${razorpayOrderId}|${razorpayPaymentId}`).digest("hex");
+      if (expectedSignature !== razorpaySignature) return res.status(400).json({ message: "Payment signature verification failed" });
+      const payment = await fetchRazorpayPayment(razorpayPaymentId);
+      if (payment.order_id !== razorpayOrderId || Number(payment.amount) !== Math.round(bill.totalAmount * 100) || payment.currency !== "INR" || payment.status !== "captured") {
+        return res.status(400).json({ message: "Payment details do not match the bill" });
+      }
+      const orders = await PurchaseOrder.find({ _id: { $in: bill.purchaseOrderIds }, organizationId: auth.orgId, retailerUserId: bill.retailerUserId }).sort({ createdAt: 1 });
+      if (!orders.length) return res.status(400).json({ message: "Bill has no valid purchase orders" });
+      await PaymentTransaction.updateOne(
+        { _id: transaction._id },
+        { $set: { paymentStatus: "paid", razorpayPaymentId, razorpaySignature, failureReason: null } }
+      );
+      await PurchaseOrder.updateMany(
+        { _id: { $in: orders.map((order) => order._id) } },
+        { $set: { paymentStatus: "paid", razorpayPaymentId, razorpaySignature } }
+      );
+      await RetailerBill.updateOne({ _id: bill._id }, { $set: { status: "PAID", paidAt: new Date(), razorpayPaymentId, razorpaySignature } });
+      return res.json({ message: "Bill payment verified successfully", billId: bill._id, paymentStatus: "paid" });
+    } catch (error) {
+      console.error("Verify bill payment error:", error);
+      return res.status(500).json({ message: "Failed to verify bill payment" });
+    }
+  }
+);
 
 /*
 |--------------------------------------------------------------------------
@@ -422,8 +514,6 @@ router.post(
         paymentTransaction.paymentStatus ===
         "paid"
       ) {
-        await receivePurchaseOrder(purchaseOrder._id);
-
         return res.status(200).json({
           message:
             "Payment is already verified",
@@ -587,11 +677,22 @@ router.post(
       |--------------------------------------------------------------------------
       */
 
-      await receivePurchaseOrder(purchaseOrder._id, {
-        paymentTransactionId: paymentTransaction._id,
-        razorpayPaymentId,
-        razorpaySignature,
-      });
+      paymentTransaction.paymentStatus = "paid";
+      paymentTransaction.razorpayPaymentId = razorpayPaymentId;
+      paymentTransaction.razorpaySignature = razorpaySignature;
+      paymentTransaction.failureReason = null;
+      await paymentTransaction.save();
+
+      await PurchaseOrder.updateOne(
+        { _id: purchaseOrder._id },
+        {
+          $set: {
+            paymentStatus: "paid",
+            razorpayPaymentId,
+            razorpaySignature,
+          },
+        }
+      );
 
       return res.status(200).json({
         message:

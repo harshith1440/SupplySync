@@ -12,7 +12,7 @@ const router = express.Router();
 // ML FORECAST CONFIGURATION
 // ============================================================
 
-const PYTHON_COMMAND = "python3";
+const PYTHON_COMMAND = process.platform === "win32" ? "python" : "python3";
 
 
 // ============================================================
@@ -211,7 +211,7 @@ function runPythonForecast(sku, organizationId) {
 
 router.get(
   "/:sku",
-  requireRole("org:retailer"),
+  requireRole("org:retailer", "org:retailer_admin"),
   async (req, res) => {
 
     try {
@@ -219,7 +219,6 @@ router.get(
       const auth = getAuth(req);
 
       if (!auth.orgId) {
-
         return res.status(400).json({
           message: "Organization not found",
         });

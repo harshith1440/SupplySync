@@ -372,7 +372,7 @@ router.get("/admin/users", requireRole("org:admin"), async (req, res) => {
       const role = membership?.role || (retailer ? "org:retailer" : supplier ? "org:supplier" : "unassigned");
 
       let approvalStatus = "APPROVED";
-      if (role === "org:retailer") {
+      if (role === "org:retailer" || role === "org:retailer_admin") {
         approvalStatus = retailer?.approvalStatus || "PENDING";
       } else if (role === "org:supplier") {
         approvalStatus = supplier?.approvalStatus || "PENDING";
@@ -400,6 +400,7 @@ router.get("/admin/users", requireRole("org:admin"), async (req, res) => {
         role,
         approvalStatus,
         active: retailer ? Boolean(retailer.active) : supplier ? Boolean(supplier.active) : true,
+        isRetailerAdmin: role === "org:retailer_admin",
         createdAt: user.createdAt || membership?.createdAt || retailer?.createdAt || supplier?.createdAt || null,
       };
     });
@@ -498,6 +499,90 @@ router.patch("/admin/retailers/:id/approval", requireRole("org:admin"), async (r
   } catch (error) {
     console.error("Update retailer approval error:", error);
     return res.status(500).json({ message: "Failed to update retailer approval", error: error.message });
+  }
+});
+
+router.patch("/admin/retailer-admin", requireRole("org:admin"), async (req, res) => {
+  try {
+    const auth = getAuth(req);
+    const { userId } = req.body || {};
+
+    if (!userId || !auth.orgId) {
+      return res.status(400).json({ message: "An existing retailer user is required" });
+    }
+
+    const memberships = await clerkClient.organizations.getOrganizationMembershipList({
+      organizationId: auth.orgId,
+      limit: 200,
+    });
+    const targetMembership = (memberships.data || []).find(
+      (membership) => (membership.publicUserData?.userId || membership.userId) === userId
+    );
+
+    if (!targetMembership || targetMembership.role !== "org:retailer") {
+      return res.status(400).json({ message: "Retailer admin must be selected from an existing org:retailer user" });
+    }
+
+    const retailerProfile = await RetailerProfile.findOne({
+      organizationId: auth.orgId,
+      clerkUserId: userId,
+    }).lean();
+    if (!retailerProfile || retailerProfile.approvalStatus !== "APPROVED") {
+      return res.status(400).json({ message: "Only an approved existing retailer can become retailer admin" });
+    }
+
+    const currentAdmins = (memberships.data || []).filter(
+      (membership) => membership.role === "org:retailer_admin"
+    );
+    for (const currentAdmin of currentAdmins) {
+      const currentAdminId = currentAdmin.publicUserData?.userId || currentAdmin.userId;
+      if (currentAdminId !== userId) {
+        await clerkClient.organizations.updateOrganizationMembership({
+          organizationId: auth.orgId,
+          userId: currentAdminId,
+          role: "org:retailer",
+        });
+      }
+    }
+
+    const updatedMembership = await clerkClient.organizations.updateOrganizationMembership({
+      organizationId: auth.orgId,
+      userId,
+      role: "org:retailer_admin",
+    });
+
+    return res.json({
+      message: "Existing retailer user assigned as retailer admin",
+      userId,
+      role: updatedMembership.role,
+      replacedAdminCount: currentAdmins.filter(
+        (membership) => (membership.publicUserData?.userId || membership.userId) !== userId
+      ).length,
+    });
+  } catch (error) {
+    console.error("Assign retailer admin error:", error);
+    return res.status(500).json({ message: "Failed to assign retailer admin", error: error.message });
+  }
+});
+
+router.get("/retailer-admin/employees", requireRole("org:retailer_admin"), async (req, res) => {
+  try {
+    const auth = getAuth(req);
+    const memberships = await clerkClient.organizations.getOrganizationMembershipList({
+      organizationId: auth.orgId,
+      limit: 200,
+    });
+    return res.json({
+      employees: (memberships.data || []).map((membership) => ({
+        userId: membership.publicUserData?.userId || membership.userId,
+        role: membership.role,
+        status: membership.status,
+        joinedAt: membership.createdAt,
+      })),
+    });
+  } catch (error) {
+    console.error("Get retailer employees error:", error);
+    return res.status(500).json({ message: "Failed to fetch retailer employees" });
   }
 });
 

@@ -23,32 +23,32 @@ const paymentTransactionSchema = new mongoose.Schema(
     supplierId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Supplier",
-      required: true,
+      required: false,
       index: true,
     },
 
     supplierOrganizationId: {
       type: String,
-      required: true,
+      required: false,
       index: true,
     },
 
     supplierName: {
       type: String,
-      required: true,
+      required: false,
       trim: true,
     },
 
     purchaseOrderId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "PurchaseOrder",
-      required: true,
+      required: false,
       index: true,
     },
 
     poNumber: {
       type: String,
-      required: true,
+      required: false,
       trim: true,
       index: true,
     },
@@ -57,6 +57,13 @@ const paymentTransactionSchema = new mongoose.Schema(
       type: Number,
       required: true,
       min: 0,
+    },
+
+    billId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "RetailerBill",
+      default: null,
+      index: true,
     },
 
     currency: {

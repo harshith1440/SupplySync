@@ -2,9 +2,8 @@ const mongoose = require("mongoose");
 const Inventory = require("../models/Inventory");
 const PurchaseOrder = require("../models/PurchaseOrder");
 const Supplier = require("../models/Supplier");
-const PaymentTransaction = require("../models/PaymentTransaction");
 
-async function receivePurchaseOrder(purchaseOrderId, paymentDetails = null) {
+async function receivePurchaseOrder(purchaseOrderId) {
   const session = await mongoose.startSession();
 
   try {
@@ -13,20 +12,12 @@ async function receivePurchaseOrder(purchaseOrderId, paymentDetails = null) {
       const purchaseOrder = await PurchaseOrder.findOneAndUpdate(
         {
           _id: purchaseOrderId,
-          ...(paymentDetails ? {} : { paymentStatus: "paid" }),
           inventoryUpdatedAt: null,
         },
         {
           $set: {
             inventoryUpdatedAt: new Date(),
-            ...(paymentDetails
-              ? {
-                  paymentStatus: "paid",
-                  orderStatus: "confirmed",
-                  razorpayPaymentId: paymentDetails.razorpayPaymentId,
-                  razorpaySignature: paymentDetails.razorpaySignature,
-                }
-              : {}),
+            orderStatus: "confirmed",
           },
         },
         { new: true, session }
@@ -43,29 +34,6 @@ async function receivePurchaseOrder(purchaseOrderId, paymentDetails = null) {
           alreadyUpdated: existingOrder?.inventoryUpdatedAt != null,
         };
         return;
-      }
-
-      if (paymentDetails) {
-        const paymentUpdate = await PaymentTransaction.findOneAndUpdate(
-          {
-            _id: paymentDetails.paymentTransactionId,
-            purchaseOrderId: purchaseOrder._id,
-            paymentStatus: { $ne: "paid" },
-          },
-          {
-            $set: {
-              paymentStatus: "paid",
-              razorpayPaymentId: paymentDetails.razorpayPaymentId,
-              razorpaySignature: paymentDetails.razorpaySignature,
-              failureReason: null,
-            },
-          },
-          { session }
-        );
-
-        if (!paymentUpdate) {
-          throw new Error("Payment transaction could not be marked as paid");
-        }
       }
 
       if (!purchaseOrder.retailerUserId || !purchaseOrder.organizationId) {

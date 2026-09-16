@@ -3,6 +3,7 @@ const { getAuth } = require("@clerk/express");
 
 const Inventory = require("../models/Inventory");
 const requireRole = require("../middleware/requireRole");
+const { isRetailerAdmin } = require("../middleware/retailerScope");
 
 const router = express.Router();
 
@@ -98,7 +99,7 @@ router.post("/", requireRole("org:retailer"), async (req, res) => {
 // GET low-stock inventory items
 router.get(
   "/low-stock",
-  requireRole("org:retailer"),
+  requireRole("org:retailer", "org:retailer_admin"),
   async (req, res) => {
     try {
       const auth = getAuth(req);
@@ -111,7 +112,7 @@ router.get(
 
       const lowStockInventory = await Inventory.find({
         organizationId: auth.orgId,
-        retailerUserId: auth.userId,
+        ...(isRetailerAdmin(auth) ? {} : { retailerUserId: auth.userId }),
         $expr: {
           $lte: ["$quantity", "$reorderLevel"],
         },
@@ -144,7 +145,7 @@ router.get("/", requireRole("org:retailer"), async (req, res) => {
 
     const inventory = await Inventory.find({
       organizationId: auth.orgId,
-      retailerUserId: auth.userId,
+      ...(isRetailerAdmin(auth) ? {} : { retailerUserId: auth.userId }),
     }).sort({ createdAt: -1 });
 
     return res.status(200).json({
@@ -173,7 +174,7 @@ router.get("/:id", requireRole("org:retailer"), async (req, res) => {
     const inventory = await Inventory.findOne({
       _id: req.params.id,
       organizationId: auth.orgId,
-      retailerUserId: auth.userId,
+      ...(isRetailerAdmin(auth) ? {} : { retailerUserId: auth.userId }),
     });
 
     if (!inventory) {
@@ -227,11 +228,11 @@ router.put("/:id", requireRole("org:retailer"), async (req, res) => {
       {
         _id: req.params.id,
         organizationId: auth.orgId,
-        retailerUserId: auth.userId,
+        ...(isRetailerAdmin(auth) ? {} : { retailerUserId: auth.userId }),
       },
       {
         productName,
-        retailerUserId: auth.userId,
+        ...(isRetailerAdmin(auth) ? {} : { retailerUserId: auth.userId }),
         sku,
         barcode,
         brand,

@@ -8,8 +8,10 @@ const PurchaseOrder = require("../models/PurchaseOrder");
 const Supplier = require("../models/Supplier");
 const RetailerProfile = require("../models/RetailerProfile");
 const SupplierFeedback = require("../models/SupplierFeedback");
+const { receivePurchaseOrder } = require("../services/receivePurchaseOrder");
 
 const requireRole = require("../middleware/requireRole");
+const { isRetailerAdmin } = require("../middleware/retailerScope");
 
 const router = express.Router();
 
@@ -52,7 +54,7 @@ Expected body:
 
 router.post(
   "/",
-  requireRole("org:retailer"),
+  requireRole("org:retailer", "org:retailer_admin"),
   async (req, res) => {
     try {
       const auth = getAuth(req);
@@ -424,7 +426,7 @@ GET /api/purchase-orders
 
 router.get(
   "/",
-  requireRole("org:retailer"),
+  requireRole("org:retailer", "org:retailer_admin"),
   async (req, res) => {
     try {
       const auth = getAuth(req);
@@ -438,7 +440,7 @@ router.get(
       const purchaseOrders =
         await PurchaseOrder.find({
           organizationId: auth.orgId,
-          retailerUserId: auth.userId,
+          ...(isRetailerAdmin(auth) ? {} : { retailerUserId: auth.userId }),
         })
           .populate(
             "supplierId",
@@ -473,7 +475,7 @@ router.get(
 
 router.patch(
   "/:id/delivered",
-  requireRole("org:retailer"),
+  requireRole("org:retailer", "org:retailer_admin"),
   async (req, res) => {
     try {
       const auth = getAuth(req);
@@ -482,7 +484,6 @@ router.patch(
           _id: req.params.id,
           organizationId: auth.orgId,
           retailerUserId: auth.userId,
-          paymentStatus: "paid",
           orderStatus: { $in: ["confirmed", "shipped"] },
         },
         { $set: { orderStatus: "delivered" } },
@@ -491,7 +492,7 @@ router.patch(
 
       if (!purchaseOrder) {
         return res.status(404).json({
-          message: "Paid purchase order is not ready to mark as delivered",
+          message: "Purchase order is not ready to mark as delivered",
         });
       }
 
@@ -504,8 +505,35 @@ router.patch(
 );
 
 router.post(
+  "/:id/receive",
+  requireRole("org:retailer", "org:retailer_admin"),
+  async (req, res) => {
+    try {
+      const auth = getAuth(req);
+      const purchaseOrder = await PurchaseOrder.findOne({
+        _id: req.params.id,
+        organizationId: auth.orgId,
+        retailerUserId: auth.userId,
+        orderStatus: { $ne: "cancelled" },
+      });
+
+      if (!purchaseOrder) {
+        return res.status(404).json({ message: "Purchase order not found" });
+      }
+
+      const result = await receivePurchaseOrder(purchaseOrder._id);
+      const updatedPurchaseOrder = await PurchaseOrder.findById(purchaseOrder._id);
+      return res.status(200).json({ purchaseOrder: updatedPurchaseOrder, ...result });
+    } catch (error) {
+      console.error("Receive purchase order error:", error);
+      return res.status(400).json({ message: error.message || "Failed to receive purchase order" });
+    }
+  }
+);
+
+router.post(
   "/:id/feedback",
-  requireRole("org:retailer"),
+  requireRole("org:retailer", "org:retailer_admin"),
   async (req, res) => {
     try {
       const auth = getAuth(req);
@@ -566,7 +594,7 @@ GET /api/purchase-orders/:id
 
 router.get(
   "/:id",
-  requireRole("org:retailer"),
+  requireRole("org:retailer", "org:retailer_admin"),
   async (req, res) => {
     try {
       const auth = getAuth(req);
@@ -581,7 +609,7 @@ router.get(
         await PurchaseOrder.findOne({
           _id: req.params.id,
           organizationId: auth.orgId,
-          retailerUserId: auth.userId,
+          ...(isRetailerAdmin(auth) ? {} : { retailerUserId: auth.userId }),
         })
           .populate(
             "supplierId",

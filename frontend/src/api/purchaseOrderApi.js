@@ -121,3 +121,14 @@ export async function submitSupplierFeedback(
     getToken
   );
 }
+
+export async function receivePurchaseOrder(
+  purchaseOrderId,
+  getToken
+) {
+  return apiRequest(
+    `/${encodeURIComponent(purchaseOrderId)}/receive`,
+    { method: "POST" },
+    getToken
+  );
+}

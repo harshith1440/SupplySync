@@ -7,7 +7,7 @@ const requireRole = require("../middleware/requireRole");
 const router = express.Router();
 
 // GET expired products
-router.get("/expired", requireRole("org:retailer"), async (req, res) => {
+router.get("/expired", requireRole("org:retailer", "org:retailer_admin"), async (req, res) => {
   try {
     const auth = getAuth(req);
 
@@ -17,13 +17,14 @@ router.get("/expired", requireRole("org:retailer"), async (req, res) => {
       });
     }
 
-    const now = new Date();
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
 
     const expiredInventory = await Inventory.find({
       organizationId: auth.orgId,
       expiryDate: {
         $ne: null,
-        $lt: now,
+        $lt: startOfToday,
       },
     }).sort({ expiryDate: 1 });
 
@@ -43,7 +44,7 @@ router.get("/expired", requireRole("org:retailer"), async (req, res) => {
 // GET products expiring within 7 days
 router.get(
   "/expiring-soon",
-  requireRole("org:retailer"),
+  requireRole("org:retailer", "org:retailer_admin"),
   async (req, res) => {
     try {
       const auth = getAuth(req);
@@ -54,19 +55,19 @@ router.get(
         });
       }
 
-      const now = new Date();
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
 
-      const sevenDaysFromNow = new Date();
-      sevenDaysFromNow.setDate(
-        sevenDaysFromNow.getDate() + 7
-      );
+      const endOfSeventhDay = new Date(startOfToday);
+      endOfSeventhDay.setDate(endOfSeventhDay.getDate() + 7);
+      endOfSeventhDay.setHours(23, 59, 59, 999);
 
       const expiringSoonInventory = await Inventory.find({
         organizationId: auth.orgId,
 
         expiryDate: {
-          $gte: now,
-          $lte: sevenDaysFromNow,
+          $gte: startOfToday,
+          $lte: endOfSeventhDay,
         },
       }).sort({ expiryDate: 1 });
 

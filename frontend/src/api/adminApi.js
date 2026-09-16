@@ -57,6 +57,17 @@ export async function updateRetailerApproval(retailerId, status, reason = "", ge
   );
 }
 
+export async function assignRetailerAdmin(userId, getToken) {
+  return adminRequest(
+    "/api/users/admin/retailer-admin",
+    {
+      method: "PATCH",
+      body: JSON.stringify({ userId }),
+    },
+    getToken
+  );
+}
+
 // 4. Transactions
 export async function getAdminTransactions(getToken) {
   return adminRequest("/api/admin/transactions", { method: "GET" }, getToken);
