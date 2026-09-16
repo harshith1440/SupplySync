@@ -10,16 +10,23 @@ function Root() {
 
   return (
     <ClerkProvider
-    routerPush={(to) => navigate(to)}
-    routerReplace={(to) => navigate(to, { replace: true })}
-    signInUrl="/sign-in"
-    signUpUrl="/sign-up"
-    signInFallbackRedirectUrl="/"
-    signUpFallbackRedirectUrl="/choose-role"
-    signUpForceRedirectUrl="/choose-role"
-  >
-    <App />
-  </ClerkProvider>
+      publishableKey={import.meta.env.VITE_CLERK_PUBLISHABLE_KEY}
+      routerPush={(to) => navigate(to)}
+      routerReplace={(to) => navigate(to, { replace: true })}
+
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
+
+      signInFallbackRedirectUrl="/"
+      signUpFallbackRedirectUrl="/choose-role"
+      signUpForceRedirectUrl="/choose-role"
+
+      allowedRedirectOrigins={[
+        "http://localhost:5173",
+      ]}
+    >
+      <App />
+    </ClerkProvider>
   );
 }
 
