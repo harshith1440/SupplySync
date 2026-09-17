@@ -1,4 +1,6 @@
-const API_URL = "http://localhost:5000/api/supplier-dashboard";
+import { API_BASE_URL } from "./config";
+
+const API_URL = `${API_BASE_URL}/api/supplier-dashboard`;
 
 async function apiRequest(endpoint, options = {}, getToken) {
   const token = await getToken();

@@ -1,5 +1,6 @@
-const API_URL =
-  "http://localhost:5000/api/suppliers";
+import { API_BASE_URL } from "./config";
+
+const API_URL = `${API_BASE_URL}/api/suppliers`;
 
 async function apiRequest(
   endpoint,

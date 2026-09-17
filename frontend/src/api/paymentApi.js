@@ -1,4 +1,6 @@
-const API_URL = "http://localhost:5000/api/payments";
+import { API_BASE_URL } from "./config";
+
+const API_URL = `${API_BASE_URL}/api/payments`;
 
 async function apiRequest(endpoint, options = {}, getToken) {
   const token = await getToken();
