@@ -247,10 +247,6 @@ http://localhost:5173
 - The forecasting scripts and supplier recommendation logic are connected to the backend APIs.
 - Make sure your environment variables and database connection are configured before starting the app.
 
-## License
-
-This project does not currently include a specific license file. If needed, you should add a license according to your team or organization requirements.
-
 ## Contributing
 
 You can fork the project, create a feature branch, and open a pull request with your changes.
@@ -271,8 +267,4 @@ Possible additions for this project include:
 
 ---
 
-If you want, I can also generate:
-- a more professional version of this README for GitHub
-- a shorter project summary README
-- a backend `.env.example` file
-- a root `.gitignore` and project setup checklist
+
