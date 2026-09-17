@@ -21,9 +21,7 @@ function Root() {
       signUpFallbackRedirectUrl="/choose-role"
       signUpForceRedirectUrl="/choose-role"
 
-      allowedRedirectOrigins={[
-        "http://localhost:5173",
-      ]}
+      allowedRedirectOrigins={[window.location.origin]}
     >
       <App />
     </ClerkProvider>

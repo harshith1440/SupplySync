@@ -1,4 +1,6 @@
-const API_URL = "http://localhost:5000/api/sales";
+import { API_BASE_URL } from "./config";
+
+const API_URL = `${API_BASE_URL}/api/sales`;
 
 export async function recordSale({ sku, quantity, idempotencyKey }, getToken) {
   const token = await getToken();

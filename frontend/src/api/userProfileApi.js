@@ -1,4 +1,6 @@
-const API_URL = "http://localhost:5000/api/users";
+import { API_BASE_URL } from "./config";
+
+const API_URL = `${API_BASE_URL}/api/users`;
 
 async function apiRequest(endpoint, options = {}, getToken) {
   const token = await getToken();

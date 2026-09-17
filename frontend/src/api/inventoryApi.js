@@ -1,5 +1,7 @@
-const API_URL = "http://localhost:5000/api/inventory";
-const EXPIRY_API_URL = "http://localhost:5000/api/expiry";
+import { API_BASE_URL } from "./config";
+
+const API_URL = `${API_BASE_URL}/api/inventory`;
+const EXPIRY_API_URL = `${API_BASE_URL}/api/expiry`;
 
 async function apiRequest(endpoint, options = {}, getToken) {
   const token = await getToken();

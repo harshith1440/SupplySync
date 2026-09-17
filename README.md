@@ -116,13 +116,13 @@ Before running the project, make sure you have:
 ## Clone the Repository
 
 ```bash
-git clone https://github.com/harshith1440/SupplySync.git
+git clone <your-repository-url>
 cd SupplySync
 ```
 
 If your repository is in a local folder, you can also open the folder directly in VS Code and work from there.
 
-## Install Dependencieshttps:
+## Install Dependencies
 
 ### 1) Backend dependencies
 
@@ -201,9 +201,7 @@ RAZORPAY_KEY_SECRET=your_razorpay_key_secret
 ```
 
 The frontend may also need Clerk public configuration depending on your application setup and environment setup in the app code.
-```env
-VITE_CLERK_PUBLISHABLE_KEY = your_clerk_publishable_key
-```
+
 ## Run the Project
 
 ### Start the backend
@@ -268,4 +266,5 @@ Possible additions for this project include:
 - deployment configuration for Docker / Render / Vercel / AWS
 
 ---
+
 

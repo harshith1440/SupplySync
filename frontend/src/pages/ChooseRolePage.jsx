@@ -71,7 +71,7 @@ function ChooseRolePage() {
         throw new Error("Clerk session token was not available. Please sign in again.");
       }
 
-      const apiBaseUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
+      const apiBaseUrl = import.meta.env.VITE_API_URL;
       let response;
       try {
         response = await fetch(`${apiBaseUrl}/api/users/role`, {
