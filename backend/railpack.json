@@ -3,13 +3,5 @@
   "provider": "node",
   "packages": {
     "python": "3.13"
-  },
-  "steps": {
-    "install": {
-      "commands": [
-        "...",
-        "pip install -r requirements.txt"
-      ]
-    }
   }
 }
