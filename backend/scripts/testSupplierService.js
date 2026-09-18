@@ -1,3 +1,5 @@
+// supplier servise is handled properly 
+
 const mongoose = require("mongoose");
 require("dotenv").config();
 

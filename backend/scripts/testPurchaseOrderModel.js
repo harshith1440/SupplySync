@@ -1,3 +1,5 @@
+// testing done in purchase order model properly
+
 require("dotenv").config();
 
 const mongoose = require("mongoose");

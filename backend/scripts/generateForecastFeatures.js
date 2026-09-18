@@ -1,3 +1,4 @@
+// generate forecast features for supply chain
 const mongoose = require("mongoose");
 require("dotenv").config();
 
@@ -49,8 +50,8 @@ function getISOWeek(date) {
 
   currentDate.setDate(
     currentDate.getDate() +
-      4 -
-      (currentDate.getDay() || 7)
+    4 -
+    (currentDate.getDay() || 7)
   );
 
   const yearStart = new Date(
