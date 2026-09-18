@@ -45,6 +45,9 @@ SupplySync helps organizations manage the full flow of goods and transactions:
 - Python forecasting module using historical sales features
 - prediction of future demand by SKU
 - recommendation engine to select suitable suppliers
+## 🚀 Live Demo
+
+👉 [SupplySync AI – Live Application](http://supply-sync-khaki.vercel.app/)
 
 ## Tech Stack
 
