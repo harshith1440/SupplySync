@@ -1,0 +1,6 @@
+{
+  "provider": "node",
+  "packages": {
+    "python": "3.13"
+  }
+}

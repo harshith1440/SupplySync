@@ -12,7 +12,9 @@ const router = express.Router();
 // ML FORECAST CONFIGURATION
 // ============================================================
 
-const PYTHON_COMMAND = process.platform === "win32" ? "python" : "python3";
+const PYTHON_COMMAND =
+  process.env.PYTHON_COMMAND ||
+  (process.platform === "win32" ? "python" : "python3");
 
 
 // ============================================================
